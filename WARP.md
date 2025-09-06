@@ -121,8 +121,8 @@ pio lib list
 - **Pin configuration:** Fully customizable through web GUI with storage controls
 
 **General Hardware:**
-- 0.85" TFT display (128x128 pixels) with Gemini-style UI
-- Physical button for start/stop capture
+- 0.85" TFT display (128x128 pixels) with dual-page Gemini-style UI
+- Physical button for page switching (WiFi info ↔ System info)
 - Compact form factor (24×24×10mm)
 - USB-C for power and programming
 
@@ -158,19 +158,20 @@ const char* password = "YOUR_WIFI_PASSWORD";
 ## AtomS3 Display Usage
 
 **Display Features:**
-- Real-time status display (READY/CAPTURING) with Gemini-style UI
-- Buffer usage indicator with purple progress bar for GPIO1 analysis
-- Current sample rate display (up to 10MHz)
-- Live GPIO1 state visualization (HIGH/LOW with color coding)
-- UART monitoring status when external communication is active
-- WiFi connection status with animated indicators
-- Modern dark theme with glass-morphism effects
-- Dual-mode operation indicator (Logic + UART)
+- **Dual-page system** with animated startup logo
+- **Page 1 (WiFi)**: Connection status, SSID, IP address, signal strength, AP mode indicator
+- **Page 2 (System)**: CPU usage estimate, RAM status, flash size, uptime
+- **Glass-morphism panels** with Gemini-style gradients (navy to purple)
+- **Page switching** via physical button with indicators (1/2, 2/2)
+- **Auto-refresh** every second with smooth transitions
+- **Color-coded status**: Connection quality, system health, resource usage
+- **Modern dark theme** optimized for 0.85" display
 
 **Physical Controls:**
-- Button A: Toggle capture start/stop
-- Status updates every 500ms
-- Color-coded states: Green (active/high), Red (inactive/low), Orange (waiting)
+- Button A: Switch between display pages (WiFi ↔ System information)
+- Display updates every 1000ms for optimal performance
+- Color-coded states: Green (active/high), Blue (info), Purple (accent), Red (inactive/error)
+- Page indicators: "1/2" (WiFi page) and "2/2" (System page)
 
 ## Library Dependencies
 
