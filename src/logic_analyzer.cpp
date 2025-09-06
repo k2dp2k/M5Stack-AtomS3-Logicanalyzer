@@ -154,14 +154,14 @@ TriggerMode LogicAnalyzer::getTriggerMode() const {
 }
 
 String LogicAnalyzer::getDataAsJSON() {
-    DynamicJsonDocument doc(16384);  // Larger buffer for more data
-    JsonArray samples = doc.createNestedArray("samples");
+    JsonDocument doc;
+    JsonArray samples = doc["samples"].to<JsonArray>();
     
     uint16_t count = getBufferUsage();
     uint16_t index = readIndex;
     
     for (uint16_t i = 0; i < count; i++) {
-        JsonObject sample = samples.createNestedObject();
+        JsonObject sample = samples.add<JsonObject>();
         sample["timestamp"] = buffer[index].timestamp;
         sample["gpio1"] = buffer[index].data;  // Single boolean for GPIO1
         sample["state"] = buffer[index].data ? "HIGH" : "LOW";
@@ -601,7 +601,7 @@ String LogicAnalyzer::getDataAsCSV() {
 }
 
 // UART Monitoring Functions
-void LogicAnalyzer::enableUartMonitoring(HardwareSerial* serial) {
+void LogicAnalyzer::enableUartMonitoring(Stream* serial) {
     uartSerial = serial;
     uartMonitoringEnabled = true;
     uartRxBuffer = "";

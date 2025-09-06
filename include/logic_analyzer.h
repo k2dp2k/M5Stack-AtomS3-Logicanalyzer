@@ -65,8 +65,8 @@ private:
     static const size_t MAX_LOG_ENTRIES = 100;
     static const size_t MAX_UART_ENTRIES = 200;
     
-    // UART monitoring
-    HardwareSerial* uartSerial;
+    // UART monitoring - using Stream for compatibility with both HardwareSerial and HWCDC
+    Stream* uartSerial;
     bool uartMonitoringEnabled;
     String uartRxBuffer;
     uint32_t lastUartActivity;
@@ -111,8 +111,8 @@ public:
     String getLogsAsPlainText();
     void clearLogs();
     
-    // UART logging
-    void enableUartMonitoring(HardwareSerial* serial = &Serial);
+    // UART logging - using Stream for ESP32-S3 HWCDC compatibility
+    void enableUartMonitoring(Stream* serial = &Serial);
     void disableUartMonitoring();
     void addUartEntry(const String& data, bool isRx = true);
     String getUartLogsAsJSON();

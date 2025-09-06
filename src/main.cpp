@@ -147,7 +147,7 @@ void setupWebServer() {
     });
     
     server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
-        DynamicJsonDocument doc(512);
+        JsonDocument doc;
         doc["capturing"] = analyzer.isCapturing();
         doc["sample_rate"] = analyzer.getSampleRate();
         doc["gpio_pin"] = 1;  // GPIO1 only
