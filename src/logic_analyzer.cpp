@@ -15,6 +15,12 @@ LogicAnalyzer::LogicAnalyzer() {
     triggerArmed = false;
     lastSampleTime = 0;
     
+    // UART monitoring initialization
+    uartSerial = nullptr;
+    uartMonitoringEnabled = false;
+    uartRxBuffer = "";
+    lastUartActivity = 0;
+    
     sampleInterval = 1000000 / sampleRate; // microseconds
 }
 
@@ -35,6 +41,11 @@ void LogicAnalyzer::initializeGPIO1() {
 }
 
 void LogicAnalyzer::process() {
+    // Process UART data monitoring
+    if (uartMonitoringEnabled) {
+        processUartData();
+    }
+    
     if (!capturing) return;
     
     uint32_t currentTime = micros();
@@ -588,4 +599,112 @@ String LogicAnalyzer::getDataAsCSV() {
     
     return result;
 }
+
+// UART Monitoring Functions
+void LogicAnalyzer::enableUartMonitoring(HardwareSerial* serial) {
+    uartSerial = serial;
+    uartMonitoringEnabled = true;
+    uartRxBuffer = "";
+    lastUartActivity = millis();
+    addLogEntry("UART monitoring enabled");
+    Serial.println("UART monitoring enabled");
+}
+
+void LogicAnalyzer::disableUartMonitoring() {
+    uartMonitoringEnabled = false;
+    uartSerial = nullptr;
+    addLogEntry("UART monitoring disabled");
+    Serial.println("UART monitoring disabled");
+}
+
+void LogicAnalyzer::processUartData() {
+    if (!uartSerial || !uartMonitoringEnabled) return;
+    
+    while (uartSerial->available()) {
+        char c = uartSerial->read();
+        lastUartActivity = millis();
+        
+        if (c == '\n' || c == '\r') {
+            if (uartRxBuffer.length() > 0) {
+                addUartEntry(uartRxBuffer, true);  // true = RX data
+                uartRxBuffer = "";
+            }
+        } else if (c >= 32 && c <= 126) {  // Printable characters only
+            uartRxBuffer += c;
+            
+            // Prevent buffer overflow
+            if (uartRxBuffer.length() > 200) {
+                addUartEntry(uartRxBuffer + " [TRUNCATED]", true);
+                uartRxBuffer = "";
+            }
+        }
+    }
+    
+    // Handle incomplete lines that timeout
+    if (uartRxBuffer.length() > 0 && (millis() - lastUartActivity) > 1000) {
+        addUartEntry(uartRxBuffer + " [TIMEOUT]", true);
+        uartRxBuffer = "";
+    }
+}
+
+void LogicAnalyzer::addUartEntry(const String& data, bool isRx) {
+    uint32_t timestamp = millis();
+    String direction = isRx ? "RX" : "TX";
+    String uartEntry = String(timestamp) + ": [UART " + direction + "] " + data;
+    
+    uartLogBuffer.push_back(uartEntry);
+    
+    // Keep only the last MAX_UART_ENTRIES
+    if (uartLogBuffer.size() > MAX_UART_ENTRIES) {
+        uartLogBuffer.erase(uartLogBuffer.begin());
+    }
+    
+    // Also add to regular serial log for debugging
+    addLogEntry("UART " + direction + ": " + data);
+}
+
+String LogicAnalyzer::getUartLogsAsJSON() {
+    JsonDocument doc;
+    JsonArray logs = doc["uart_logs"].to<JsonArray>();
+    
+    for (const auto& uartEntry : uartLogBuffer) {
+        logs.add(uartEntry);
+    }
+    
+    doc["count"] = uartLogBuffer.size();
+    doc["max_entries"] = MAX_UART_ENTRIES;
+    doc["monitoring_enabled"] = uartMonitoringEnabled;
+    doc["last_activity"] = lastUartActivity;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+String LogicAnalyzer::getUartLogsAsPlainText() {
+    String result = "# AtomS3 Logic Analyzer - UART Communication Logs\n";
+    result += "# Generated: " + String(millis()) + "ms\n";
+    result += "# Monitoring Enabled: " + String(uartMonitoringEnabled ? "YES" : "NO") + "\n";
+    result += "# Last Activity: " + String(lastUartActivity) + "ms\n";
+    result += "# Total entries: " + String(uartLogBuffer.size()) + "\n\n";
+    
+    for (const auto& uartEntry : uartLogBuffer) {
+        result += uartEntry + "\n";
+    }
+    
+    if (uartLogBuffer.empty()) {
+        result += "No UART communication logged.\n";
+        if (!uartMonitoringEnabled) {
+            result += "Note: UART monitoring is currently disabled.\n";
+        }
+    }
+    
+    return result;
+}
+
+void LogicAnalyzer::clearUartLogs() {
+    uartLogBuffer.clear();
+    addLogEntry("UART logs cleared");
+}
+
 #endif

@@ -61,7 +61,15 @@ private:
     
     // Serial logging
     std::vector<String> serialLogBuffer;
+    std::vector<String> uartLogBuffer;
     static const size_t MAX_LOG_ENTRIES = 100;
+    static const size_t MAX_UART_ENTRIES = 200;
+    
+    // UART monitoring
+    HardwareSerial* uartSerial;
+    bool uartMonitoringEnabled;
+    String uartRxBuffer;
+    uint32_t lastUartActivity;
     
     // Private methods - optimized for GPIO1
     void initializeGPIO1();
@@ -102,6 +110,15 @@ public:
     String getLogsAsJSON();
     String getLogsAsPlainText();
     void clearLogs();
+    
+    // UART logging
+    void enableUartMonitoring(HardwareSerial* serial = &Serial);
+    void disableUartMonitoring();
+    void addUartEntry(const String& data, bool isRx = true);
+    String getUartLogsAsJSON();
+    String getUartLogsAsPlainText();
+    void clearUartLogs();
+    void processUartData();
     
     // Data export
     String getDataAsCSV();

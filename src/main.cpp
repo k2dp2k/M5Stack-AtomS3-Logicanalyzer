@@ -78,6 +78,9 @@ void setup() {
         startAPMode();
     }
     
+    // Enable UART monitoring by default
+    analyzer.enableUartMonitoring(&Serial);
+    
     // Setup web server routes
     setupWebServer();
     
@@ -179,6 +182,27 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"status\":\"cleared\"}");
     });
     
+    // UART monitoring endpoints
+    server.on("/api/uart/logs", HTTP_GET, [](AsyncWebServerRequest *request){
+        String uartLogs = analyzer.getUartLogsAsJSON();
+        request->send(200, "application/json", uartLogs);
+    });
+    
+    server.on("/api/uart/enable", HTTP_POST, [](AsyncWebServerRequest *request){
+        analyzer.enableUartMonitoring(&Serial);
+        request->send(200, "application/json", "{\"status\":\"enabled\",\"message\":\"UART monitoring started\"}");
+    });
+    
+    server.on("/api/uart/disable", HTTP_POST, [](AsyncWebServerRequest *request){
+        analyzer.disableUartMonitoring();
+        request->send(200, "application/json", "{\"status\":\"disabled\",\"message\":\"UART monitoring stopped\"}");
+    });
+    
+    server.on("/api/uart/clear", HTTP_POST, [](AsyncWebServerRequest *request){
+        analyzer.clearUartLogs();
+        request->send(200, "application/json", "{\"status\":\"cleared\",\"message\":\"UART logs cleared\"}");
+    });
+    
     // Clear buffer data endpoint
     server.on("/api/data/clear", HTTP_POST, [](AsyncWebServerRequest *request){
         analyzer.clearBuffer();
@@ -232,6 +256,19 @@ void setupWebServer() {
         request->send(response);
         
         analyzer.addLogEntry("Serial logs downloaded as " + filename);
+    });
+    
+    server.on("/download/uart", HTTP_GET, [](AsyncWebServerRequest *request){
+        String uartLogs = analyzer.getUartLogsAsPlainText();
+        String timestamp = String(millis());
+        String filename = "atoms3_uart_" + timestamp + ".txt";
+        
+        AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", uartLogs);
+        response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+        response->addHeader("Content-Type", "text/plain; charset=utf-8");
+        request->send(response);
+        
+        analyzer.addLogEntry("UART logs downloaded as " + filename);
     });
     
     server.on("/download/data", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -347,8 +384,23 @@ String getIndexHTML() {
            "</div>" 
            "<div id='logs' class='gemini-mono'>Loading logs...</div>" 
            "</div>"
-           "</div></div>" 
-           "<script>" 
+           "</div>" 
+           "<div class='gemini-card'>" 
+           "<h3>📡 UART Monitor</h3>" 
+           "<div class='controls'>" 
+           "<button class='gemini-btn success' onclick='enableUartMonitoring()' id='uart-enable'>▶️ Start UART</button>" 
+           "<button class='gemini-btn danger' onclick='disableUartMonitoring()' id='uart-disable'>⏹️ Stop UART</button>" 
+           "<button class='gemini-btn secondary' onclick='clearUartLogs()'>🗑️ Clear UART</button>" 
+           "<button class='gemini-btn' onclick='downloadUartLogs()'>📥 Download UART</button>" 
+           "</div>" 
+           "<div id='uart-status' class='info-grid' style='margin:10px 0;'>" 
+           "<div class='info-item'><strong>Status:</strong> <span id='uart-monitoring-status'>Disabled</span></div>" 
+           "<div class='info-item'><strong>Activity:</strong> <span id='uart-last-activity'>None</span></div>" 
+           "</div>" 
+           "<div id='uart-logs' class='gemini-mono'>UART monitoring disabled...</div>" 
+           "</div>" 
+           "</div>" 
+           "<script>"
            "function startCapture(){fetch('/api/start',{method:'POST'}).then(()=>updateAll());}" 
            "function stopCapture(){fetch('/api/stop',{method:'POST'}).then(()=>updateAll());}" 
            "function getData(){fetch('/api/data').then(r=>r.json()).then(d=>document.getElementById('data').innerHTML='<pre>'+JSON.stringify(d,null,2)+'</pre>');}" 
@@ -356,7 +408,12 @@ String getIndexHTML() {
            "function clearLogs(){fetch('/api/logs/clear',{method:'POST'}).then(()=>loadLogs());}" 
            "function loadLogs(){fetch('/api/logs').then(r=>r.json()).then(d=>{const logs=d.logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(0,212,255,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('logs').innerHTML=logs||'No logs available';});}" 
            "function downloadLogs(){window.open('/download/logs','_blank');}" 
-           "function downloadData(format){window.open('/download/data?format='+format,'_blank');}"
+           "function downloadData(format){window.open('/download/data?format='+format,'_blank');}" 
+           "function enableUartMonitoring(){fetch('/api/uart/enable',{method:'POST'}).then(()=>loadUartLogs());}" 
+           "function disableUartMonitoring(){fetch('/api/uart/disable',{method:'POST'}).then(()=>loadUartLogs());}" 
+           "function clearUartLogs(){fetch('/api/uart/clear',{method:'POST'}).then(()=>loadUartLogs());}" 
+           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';document.getElementById('uart-last-activity').textContent=d.last_activity>0?(d.last_activity+'ms ago'):'None';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';});}" 
+           "function downloadUartLogs(){window.open('/download/uart','_blank');}"
            "function updateAll(){" 
            "fetch('/api/status').then(r=>r.json()).then(d=>{" 
            "const indicator=d.capturing?'<span class=\"gemini-indicator capturing\"></span>':'<span class=\"gemini-indicator ready\"></span>';" 
@@ -364,8 +421,8 @@ String getIndexHTML() {
            "document.getElementById('network-mode').textContent = d.ap_mode ? 'Access Point' : (d.wifi_connected ? 'WiFi Client' : 'Disconnected');" 
            "document.getElementById('network-name').textContent = d.wifi_ssid || 'None';" 
            "document.getElementById('network-ip').textContent = d.ip_address || 'None';" 
-           "});loadLogs();}"
-           "setInterval(updateAll,2000);updateAll();" 
+           "});loadLogs();loadUartLogs();}" 
+           "setInterval(updateAll,2000);updateAll();setInterval(loadUartLogs,3000);"
            "</script></body></html>";
 }
 

@@ -31,6 +31,7 @@ A specialized, wireless logic analyzer built **exclusively for the M5Stack AtomS
 - **JSON/CSV export** for analysis in external tools
 - **WiFi configuration** with AP fallback mode
 - **Serial log viewing** for debugging
+- **UART monitoring** for communication analysis
 
 ### 📱 **Specialized AtomS3 Hardware**
 - **M5Stack AtomS3 ONLY** - (24×24×10mm) ultra-compact form factor
@@ -77,7 +78,32 @@ A specialized, wireless logic analyzer built **exclusively for the M5Stack AtomS
 - Connected mode: Check device display for IP address
 - Open browser to `http://[DEVICE_IP]`
 
-## 📊 Usage
+## 🔌 Usage
+
+### 📡 UART Communication Monitoring
+
+The AtomS3 Logic Analyzer includes built-in UART monitoring capabilities to capture and analyze serial communication alongside GPIO1 signal analysis.
+
+**Key Features:**
+- **Real-time monitoring** of UART RX/TX data
+- **Automatic logging** of all serial communication
+- **200-entry buffer** for extended monitoring sessions
+- **Timestamped entries** for precise timing analysis
+- **Text export** for external analysis tools
+
+**How it works:**
+1. UART monitoring captures all data sent/received via Serial port
+2. Data is automatically parsed into readable format
+3. Both directions (RX/TX) are logged with timestamps
+4. Logs are viewable in real-time via web interface
+5. Export logs as downloadable text files
+
+**Use cases:**
+- Debug microcontroller communication protocols
+- Analyze sensor data streams in real-time
+- Monitor command/response sequences
+- Capture intermittent communication issues
+- Document communication for reverse engineering
 
 ### 🔌 Hardware Setup
 
@@ -112,11 +138,19 @@ M5Stack AtomS3 - Single Channel Logic Analyzer:
 - **🗑️ Clear Data** - Reset capture buffer
 - **📥 Download** - Export data as JSON or CSV
 
+**UART Monitoring:**
+- **▶️ Start UART** - Begin UART communication monitoring
+- **⏹️ Stop UART** - End UART monitoring session
+- **🗑️ Clear UART** - Clear UART communication logs
+- **📥 Download UART** - Export UART logs as text file
+
 **Real-time Status:**
 - **Capture State** - READY/CAPTURING with color coding
 - **Sample Rate** - Current sampling frequency (up to 10MHz)
 - **Buffer Usage** - Memory utilization percentage (16,384 samples)
 - **GPIO1 State** - Live signal level display (HIGH/LOW with colors)
+- **UART Status** - Active/Disabled monitoring state
+- **UART Activity** - Last communication timestamp
 
 ### 📱 Device Display
 
@@ -126,6 +160,7 @@ M5Stack AtomS3 - Single Channel Logic Analyzer:
 - **Rate: X.XMHz** - Sampling frequency
 - **Buf: XX%** - Buffer usage with purple progress bar
 - **WiFi/GPIO1** - Connection and signal status cards
+- **UART monitoring** - Active when serial communication is detected
 
 **Physical Controls:**
 - **Button press** - Start/stop capture toggle
