@@ -27,8 +27,8 @@ LogicAnalyzer::LogicAnalyzer() {
     preferences = nullptr;
     maxUartEntries = MAX_UART_ENTRIES;  // Initialize with default
     
-    // Flash Storage initialization
-    useFlashStorage = false;
+    // Flash Storage initialization - Enable by default to use 8MB Flash
+    useFlashStorage = true;
     uartLogFileName = "/uart_logs.txt";
     
     sampleInterval = 1000000 / sampleRate; // microseconds
@@ -235,47 +235,56 @@ void LogicAnalyzer::initDisplay() {
     drawGradientBackground();
 }
 
-// Cool startup logo with AtomS3 Logic Analyzer branding
+// Modern startup logo with blue-purple gradient and white diamond
 void LogicAnalyzer::drawStartupLogo() {
-    display.fillScreen(0x0000);  // Pure black
+    display.fillScreen(0x0841);  // Dark navy background
     
-    // Animated logo effect - main circle
-    for (int r = 5; r <= 30; r += 2) {
-        display.drawCircle(64, 50, r, 0x4CAF + (r * 100));  // Blue to purple gradient
-        delay(50);
+    // Create gradient background
+    for(int y = 0; y < 128; y++) {
+        uint16_t gradColor = display.color565(6 + y/10, 8 + y/8, 20 + y/4);
+        display.drawLine(0, y, 128, y, gradColor);
     }
     
-    // Central core
-    display.fillCircle(64, 50, 20, 0x52AA);  // Purple core
-    display.fillCircle(64, 50, 15, 0x4CAF);  // Blue inner
-    display.fillCircle(64, 50, 8, 0x7BEF);   // Light blue center
+    // Main circular gradient background
+    for (int r = 40; r > 5; r--) {
+        float ratio = (40.0 - r) / 35.0;
+        uint8_t red = 10 + (60 * ratio);     // Dark blue to purple
+        uint8_t green = 15 + (40 * ratio);   // Blue component
+        uint8_t blue = 80 + (100 * ratio);   // Strong blue to purple
+        uint16_t color = display.color565(red, green, blue);
+        display.fillCircle(64, 60, r, color);
+        delay(20);  // Smooth animation
+    }
     
-    // GPIO symbol
+    // White diamond/star shape in center
+    display.fillTriangle(64, 35, 49, 60, 79, 60, 0xFFFF);  // Top triangle
+    display.fillTriangle(64, 85, 49, 60, 79, 60, 0xFFFF);  // Bottom triangle
+    display.fillTriangle(39, 60, 64, 45, 64, 75, 0xFFFF);  // Left triangle
+    display.fillTriangle(89, 60, 64, 45, 64, 75, 0xFFFF);  // Right triangle
+    
+    // Add subtle glow to diamond
+    display.drawCircle(64, 60, 20, 0x7BEF);
+    display.drawCircle(64, 60, 22, 0x4CAF);
+    
+    // Product name with modern font
     display.setTextColor(0xFFFF);
     display.setTextSize(1);
-    display.setCursor(58, 46);
-    display.print("GPIO");
-    display.setCursor(61, 55);
-    display.print("1");
-    
-    // Product name
-    display.setTextColor(0xDEFB);
-    display.setCursor(25, 85);
+    display.setCursor(25, 95);
     display.print("AtomS3 Logic");
-    display.setCursor(35, 95);
+    display.setCursor(35, 105);
     display.print("Analyzer");
     
-    // Version
-    display.setTextColor(0x52AA);
-    display.setCursor(48, 110);
+    // Version with accent color
+    display.setTextColor(0x7BEF);
+    display.setCursor(48, 118);
     display.print("v2.2.0");
     
-    // Flash effect
-    for (int i = 0; i < 3; i++) {
-        display.drawCircle(64, 50, 32, 0xFFFF);
-        delay(100);
-        display.drawCircle(64, 50, 32, 0x0000);
-        delay(100);
+    // Final glow effect
+    for (int i = 0; i < 2; i++) {
+        display.drawCircle(64, 60, 35, 0x52AA);
+        delay(200);
+        display.drawCircle(64, 60, 35, 0x0841);
+        delay(200);
     }
 }
 
@@ -448,18 +457,31 @@ void LogicAnalyzer::setAPMode(bool isAPMode) {
     ap_mode = isAPMode;
 }
 
-// Update the current page display
+// Update the current page display with reduced flicker
 void LogicAnalyzer::updateDisplay() {
+    static uint8_t last_page = 255; // Force initial draw
+    static bool wifi_status_changed = false;
     unsigned long now = millis();
     
-    // Only update display every second to reduce flicker
+    // Check if page changed (immediate update)
+    if (current_page != last_page) {
+        if (current_page == 0) {
+            drawWiFiPage();
+        } else {
+            drawSystemPage();
+        }
+        last_page = current_page;
+        lastDisplayUpdate = now;
+        return;
+    }
+    
+    // Regular timed updates (reduced frequency to prevent blinking)
     if (now - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
         if (current_page == 0) {
             drawWiFiPage();
         } else {
             drawSystemPage();
         }
-        
         lastDisplayUpdate = now;
     }
 }

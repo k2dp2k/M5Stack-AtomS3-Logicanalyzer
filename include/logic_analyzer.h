@@ -197,7 +197,7 @@ public:
     uint8_t current_page = 0;        // 0=WiFi page, 1=System page
     bool ap_mode = false;            // Track AP mode state
     unsigned long lastDisplayUpdate = 0;
-    const unsigned long DISPLAY_UPDATE_INTERVAL = 1000; // Update every second
+    const unsigned long DISPLAY_UPDATE_INTERVAL = 2000; // Update every 2 seconds to reduce blinking
 #endif
 };
 
