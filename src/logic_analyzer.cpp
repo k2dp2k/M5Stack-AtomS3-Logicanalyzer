@@ -23,6 +23,7 @@ LogicAnalyzer::LogicAnalyzer() {
     lastUartActivity = 0;
     uartBytesReceived = 0;
     uartBytesSent = 0;
+    preferences = nullptr;
     
     sampleInterval = 1000000 / sampleRate; // microseconds
 }
@@ -743,7 +744,19 @@ String LogicAnalyzer::getUartLogsAsJSON() {
     doc["last_activity"] = lastUartActivity;
     doc["bytes_received"] = uartBytesReceived;
     doc["bytes_sent"] = uartBytesSent;
-    doc["config"] = getUartConfigAsJSON();
+    
+    // Embed config as JSON object, not string
+    JsonDocument configDoc;
+    configDoc["baudrate"] = uartConfig.baudrate;
+    configDoc["data_bits"] = uartConfig.dataBits;
+    configDoc["parity"] = uartConfig.parity;
+    configDoc["parity_string"] = (uartConfig.parity == 0 ? "None" : (uartConfig.parity == 1 ? "Odd" : "Even"));
+    configDoc["stop_bits"] = uartConfig.stopBits;
+    configDoc["rx_pin"] = uartConfig.rxPin;
+    configDoc["tx_pin"] = uartConfig.txPin;
+    configDoc["enabled"] = uartConfig.enabled;
+    
+    doc["config"] = configDoc;
     
     String result;
     serializeJson(doc, result);
@@ -793,16 +806,59 @@ void LogicAnalyzer::clearUartLogs() {
 }
 
 void LogicAnalyzer::saveUartConfig() {
-    // Save UART config to preferences (would need Preferences instance)
-    // For now, just log the configuration
-    String configMsg = "UART config saved: " + String(uartConfig.baudrate) + " baud";
-    addLogEntry(configMsg);
+    if (preferences) {
+        preferences->putUInt("uart_baud", uartConfig.baudrate);
+        preferences->putUChar("uart_data", uartConfig.dataBits);
+        preferences->putUChar("uart_parity", uartConfig.parity);
+        preferences->putUChar("uart_stop", uartConfig.stopBits);
+        preferences->putUChar("uart_rx_pin", uartConfig.rxPin);
+        preferences->putUChar("uart_tx_pin", uartConfig.txPin);
+        preferences->putBool("uart_enabled", uartConfig.enabled);
+        
+        String configMsg = "UART config saved: " + String(uartConfig.baudrate) + " baud, " + 
+                           String(uartConfig.dataBits) + 
+                           String(uartConfig.parity == 0 ? "N" : (uartConfig.parity == 1 ? "O" : "E")) + 
+                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin);
+        addLogEntry(configMsg);
+        Serial.println(configMsg);
+    } else {
+        addLogEntry("UART config save failed - no preferences available");
+        Serial.println("UART config save failed - no preferences available");
+    }
 }
 
 void LogicAnalyzer::loadUartConfig() {
-    // Load UART config from preferences (would need Preferences instance)
-    // For now, use default values
-    addLogEntry("UART config loaded (defaults)");
+    if (preferences) {
+        uartConfig.baudrate = preferences->getUInt("uart_baud", 115200);
+        uartConfig.dataBits = preferences->getUChar("uart_data", 8);
+        uartConfig.parity = preferences->getUChar("uart_parity", 0);
+        uartConfig.stopBits = preferences->getUChar("uart_stop", 1);
+        uartConfig.rxPin = preferences->getUChar("uart_rx_pin", 43);
+        uartConfig.txPin = preferences->getUChar("uart_tx_pin", 44);
+        uartConfig.enabled = preferences->getBool("uart_enabled", false);
+        
+        String configMsg = "UART config loaded: " + String(uartConfig.baudrate) + " baud, " + 
+                           String(uartConfig.dataBits) + 
+                           String(uartConfig.parity == 0 ? "N" : (uartConfig.parity == 1 ? "O" : "E")) + 
+                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin);
+        addLogEntry(configMsg);
+        Serial.println(configMsg);
+    } else {
+        // Use default values
+        uartConfig.baudrate = 115200;
+        uartConfig.dataBits = 8;
+        uartConfig.parity = 0;
+        uartConfig.stopBits = 1;
+        uartConfig.rxPin = 43;
+        uartConfig.txPin = 44;
+        uartConfig.enabled = false;
+        addLogEntry("UART config loaded (defaults - no preferences available)");
+        Serial.println("UART config loaded (defaults)");
+    }
+}
+
+void LogicAnalyzer::setPreferences(Preferences* prefs) {
+    preferences = prefs;
 }
 
 #endif

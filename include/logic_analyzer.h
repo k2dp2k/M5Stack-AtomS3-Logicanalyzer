@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <vector>
 
 #ifdef ATOMS3_BUILD
@@ -85,6 +86,9 @@ private:
     uint32_t uartBytesReceived;
     uint32_t uartBytesSent;
     
+    // Preferences for persistent storage
+    Preferences* preferences;
+    
     // Private methods - optimized for GPIO1
     void initializeGPIO1();
     bool readGPIO1();
@@ -137,6 +141,7 @@ public:
     void processUartData();
     void saveUartConfig();
     void loadUartConfig();
+    void setPreferences(Preferences* prefs);
     
     // Data export
     String getDataAsCSV();
