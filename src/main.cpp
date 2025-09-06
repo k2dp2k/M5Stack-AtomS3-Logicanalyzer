@@ -22,6 +22,9 @@ String saved_password = "";
 bool wifi_connected = false;
 bool ap_mode = false;
 const int WIFI_CONNECT_TIMEOUT = 15000;  // 15 seconds
+const unsigned long WIFI_DISCONNECT_TIMEOUT = 30000;  // 30 seconds
+unsigned long last_wifi_connected_time = 0;
+bool wifi_monitoring_active = false;
 
 // Web server on port 80
 AsyncWebServer server(80);
@@ -37,6 +40,8 @@ void loadWiFiCredentials();
 void saveWiFiCredentials(const String& ssid, const String& password);
 bool connectToWiFi();
 void startAPMode();
+void checkWiFiConnection();
+void handleWiFiReconnection();
 String getWiFiStatus();
 
 void setup() {
@@ -51,6 +56,10 @@ void setup() {
     // Initialize logic analyzer
     analyzer.begin();
     analyzer.initDisplay();
+    
+    // Show startup logo
+    analyzer.drawStartupLogo();
+    delay(3000);  // Show logo for 3 seconds
 #else
     Serial.begin(115200);
     Serial.println("ESP32 Logic Analyzer Starting...");
@@ -82,6 +91,12 @@ void setup() {
     if (!connected) {
         analyzer.addLogEntry("Starting Access Point mode...");
         startAPMode();
+        analyzer.setAPMode(true);
+    } else {
+        analyzer.setAPMode(false);
+        wifi_connected = true;
+        last_wifi_connected_time = millis();
+        wifi_monitoring_active = true;
     }
     
     // Setup web server routes
@@ -99,13 +114,9 @@ void loop() {
     // Update M5AtomS3
     AtomS3.update();
     
-    // Handle button press (start/stop capture)
+    // Handle button press (switch display pages)
     if (AtomS3.BtnA.wasPressed()) {
-        if (analyzer.isCapturing()) {
-            analyzer.stopCapture();
-        } else {
-            analyzer.startCapture();
-        }
+        analyzer.switchPage();
     }
     
     // Main logic analyzer processing
@@ -113,9 +124,15 @@ void loop() {
     
     // Update display
     analyzer.updateDisplay();
+    
+    // WiFi connection monitoring
+    checkWiFiConnection();
 #else
     // Main logic analyzer processing
     analyzer.process();
+    
+    // WiFi connection monitoring (non-AtomS3)
+    checkWiFiConnection();
 #endif
     
     // Small delay to prevent watchdog issues
@@ -795,4 +812,60 @@ String getConfigHTML() {
            "});}}" 
            "updateStatus();" 
            "</script></body></html>";
+}
+
+// WiFi connection monitoring with 30-second timeout fallback
+void checkWiFiConnection() {
+    static unsigned long lastCheck = 0;
+    unsigned long now = millis();
+    
+    // Check WiFi status every 5 seconds
+    if (now - lastCheck < 5000) {
+        return;
+    }
+    lastCheck = now;
+    
+    bool currently_connected = (WiFi.status() == WL_CONNECTED);
+    
+    if (currently_connected && !wifi_connected) {
+        // WiFi reconnected
+        wifi_connected = true;
+        last_wifi_connected_time = now;
+        wifi_monitoring_active = true;
+        analyzer.addLogEntry("WiFi reconnected: " + WiFi.SSID());
+        analyzer.setAPMode(false);
+        
+        // If we were in AP mode, we could stop AP here
+        // For now, we'll keep AP running for dual access
+        
+    } else if (!currently_connected && wifi_connected) {
+        // WiFi disconnected
+        wifi_connected = false;
+        analyzer.addLogEntry("WiFi disconnected, monitoring for " + String(WIFI_DISCONNECT_TIMEOUT/1000) + "s timeout");
+        
+    } else if (!currently_connected && !ap_mode && wifi_monitoring_active) {
+        // Check if we've been disconnected too long
+        if (now - last_wifi_connected_time > WIFI_DISCONNECT_TIMEOUT) {
+            analyzer.addLogEntry("WiFi timeout reached, starting AP mode fallback");
+            startAPMode();
+            analyzer.setAPMode(true);
+            ap_mode = true;
+        }
+    } else if (currently_connected && wifi_connected) {
+        // Still connected, update timestamp
+        last_wifi_connected_time = now;
+    }
+}
+
+// Handle WiFi reconnection attempts
+void handleWiFiReconnection() {
+    if (!wifi_connected && !ap_mode && saved_ssid.length() > 0) {
+        analyzer.addLogEntry("Attempting WiFi reconnection to: " + saved_ssid);
+        if (connectToWiFi()) {
+            wifi_connected = true;
+            last_wifi_connected_time = millis();
+            analyzer.addLogEntry("WiFi reconnection successful");
+            analyzer.setAPMode(false);
+        }
+    }
 }

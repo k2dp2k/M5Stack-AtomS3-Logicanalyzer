@@ -2,7 +2,7 @@
 
 > **Professional-grade dual-mode analyzer with Flash Storage and Gemini-style UI**
 
-[![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
+[![Version](https://img.shields.io/badge/Version-2.2.0-brightgreen.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
 [![Flash Storage](https://img.shields.io/badge/Flash%20Storage-100K%20Entries-blue.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
 [![UART Monitor](https://img.shields.io/badge/UART-Professional-yellow.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
 [![PlatformIO CI](https://img.shields.io/badge/PlatformIO-Ready-orange.svg)](https://platformio.org/)
@@ -51,12 +51,15 @@ A **professional-grade dual-mode analyzer** built exclusively for the M5Stack At
 - **Serial log viewing** for debugging
 - **Advanced UART monitoring** with Flash storage controls
 
-### 📱 **Specialized AtomS3 Hardware**
+### 📱 **Specialized AtomS3 Hardware with Dual-Page Display**
 - **M5Stack AtomS3 ONLY** - (24×24×10mm) ultra-compact form factor
 - **ESP32-S3** - 240MHz dual-core with 320KB RAM + 8MB Flash
 - **GPIO1 input** - single-channel optimized for maximum speed
-- **0.85\" TFT display** (128x128 pixels) with Gemini-style UI
-- **Physical button** for start/stop capture
+- **0.85\" TFT display** (128x128 pixels) with **dual-page Gemini-style UI**
+- **Animated startup logo** with AtomS3 branding and version info
+- **Page 1: WiFi Information** - Connection status, SSID, IP address, signal strength
+- **Page 2: System Information** - CPU usage, RAM status, flash size, uptime
+- **Physical button** for **page switching** (replaces capture control)
 - **USB-C connectivity** for programming and power
 
 ## 🛠️ Quick Start
@@ -85,17 +88,62 @@ A **professional-grade dual-mode analyzer** built exclusively for the M5Stack At
    pio device monitor --environment m5stack-atoms3
    ```
 
-### 📶 WiFi Setup
+### 📶 WiFi Setup with Auto-Fallback
 
 **First-time setup:**
-- Device creates AP: `AtomS3-Logic-XXXXXX` (password: `logicanalyzer`)
+- Device creates AP: `AtomS3-LogicAnalyzer` (password: `logic123`)
 - Connect and go to `http://192.168.4.1/config`
 - Enter your WiFi credentials
 - Device will restart and connect to your network
 
+**Automatic WiFi Management:**
+- **30-second fallback** - Automatically starts AP mode if WiFi is disconnected for 30+ seconds
+- **Auto-reconnection** - Continuously attempts to reconnect to saved WiFi network
+- **Dual-mode support** - Can run WiFi client and AP simultaneously for maximum accessibility
+- **Real-time monitoring** - WiFi status displayed on device screen and web interface
+
 **Web interface access:**
-- Connected mode: Check device display for IP address
-- Open browser to `http://[DEVICE_IP]`
+- **WiFi Client mode:** Check **WiFi page** on device display for IP address
+- **Access Point mode:** Connect to device AP and go to `http://192.168.4.1`
+- **Dual mode:** Access via either IP address
+
+## 📱 Dual-Page Display System
+
+The AtomS3 features a modern **dual-page display system** optimized for the compact 0.85" screen:
+
+### 🎨 **Startup Experience**
+- **Animated startup logo** with AtomS3 Logic Analyzer branding
+- **Version information** display (v2.2.0)
+- **Purple/blue gradient** color scheme with flash effects
+- **3-second display** before switching to main interface
+
+### 📶 **Page 1: WiFi Information**
+- **Connection status** - Connected/Disconnected with color coding
+- **Network name (SSID)** - Current WiFi network or AP name
+- **IP address** - Device IP for web interface access
+- **Signal strength** - RSSI in dBm with quality indication
+- **AP mode indicator** - Shows when device is in fallback AP mode
+- **Glass-morphism panel** with purple accent colors
+
+### 💻 **Page 2: System Information**
+- **CPU usage** - Estimated based on capture activity (15% idle, 85% capturing)
+- **RAM status** - Free heap memory in KB with usage percentage
+- **Flash size** - Total flash memory available in MB
+- **Uptime** - System runtime in hours and minutes
+- **Blue accent colors** to distinguish from WiFi page
+
+### 🔄 **Page Navigation**
+- **Physical button** - Press AtomS3 button to switch between pages
+- **Page indicators** - "1/2" and "2/2" shown in corner of each page
+- **Auto-refresh** - Pages update every second with fresh information
+- **No capture control** - Logic analyzer start/stop now only via web interface
+
+### 🎨 **Visual Design**
+- **Gemini-style gradients** - Dark navy to purple background
+- **Glass-morphism effects** - Semi-transparent panels with subtle highlights
+- **Color-coded status** - Green (good), yellow (warning), red (error)
+- **Optimized typography** - Clear, readable text at 128x128 resolution
+- **Modern aesthetics** - Consistent with Gemini AI design language
 
 ## 🔌 Usage
 

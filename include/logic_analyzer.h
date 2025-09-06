@@ -177,16 +177,27 @@ public:
     void initDisplay();
     void updateDisplay();
     
-    // New clean design functions
+    // New dual-page system
+    void drawStartupLogo();
+    void drawWiFiPage();
+    void drawSystemPage();
+    void switchPage();
+    
+    // Legacy methods (kept for compatibility)
+    void drawNetworkPage();
+    void drawSystemStatsPage();
+    
+    // Utilities
     void drawGradientBackground();
-    void drawHeader();
-    void drawInitialStatus();
-    void drawStatusSection();
-    void drawChannelSection();
-    void drawBottomSection();
-    void drawCard(int x, int y, int w, int h, uint16_t color, const char* title = nullptr);
+    void drawGlassPanel(int x, int y, int w, int h);
     void drawGeminiCard(int x, int y, int w, int h, uint16_t grad1, uint16_t grad2, const char* title = nullptr);
-    void updateWiFiStatus(bool isConnected, bool isAP, const String& networkName, const String& ipAddress);
+    void setAPMode(bool isAPMode);   // Set AP mode status
+    
+    // State variables for dual-page system
+    uint8_t current_page = 0;        // 0=WiFi page, 1=System page
+    bool ap_mode = false;            // Track AP mode state
+    unsigned long lastDisplayUpdate = 0;
+    const unsigned long DISPLAY_UPDATE_INTERVAL = 1000; // Update every second
 #endif
 };
 

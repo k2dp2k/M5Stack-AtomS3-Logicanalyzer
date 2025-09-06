@@ -1,5 +1,6 @@
 #include "logic_analyzer.h"
-
+#include <WiFi.h>
+#include <cmath>
 #ifdef ATOMS3_BUILD
     extern M5GFX& display;
 #endif
@@ -228,27 +229,57 @@ void LogicAnalyzer::printChannelStates() {
 
 #ifdef ATOMS3_BUILD
 void LogicAnalyzer::initDisplay() {
-    // Gemini-style dark gradient background (deep navy to dark purple)
-    display.fillScreen(0x0841);  // Very dark navy base
+    // Initialize display settings
+    current_page = 0;  // Start with WiFi page
+    lastDisplayUpdate = 0;
     drawGradientBackground();
-    drawHeader();
-    drawInitialStatus();
 }
 
-void LogicAnalyzer::updateDisplay() {
-    static unsigned long lastUpdate = 0;
-    unsigned long now = millis();
+// Cool startup logo with AtomS3 Logic Analyzer branding
+void LogicAnalyzer::drawStartupLogo() {
+    display.fillScreen(0x0000);  // Pure black
     
-    // Update display every 300ms for smoother updates
-    if (now - lastUpdate > 300) {
-        drawStatusSection();
-        drawChannelSection();
-        drawBottomSection();
-        lastUpdate = now;
+    // Animated logo effect - main circle
+    for (int r = 5; r <= 30; r += 2) {
+        display.drawCircle(64, 50, r, 0x4CAF + (r * 100));  // Blue to purple gradient
+        delay(50);
+    }
+    
+    // Central core
+    display.fillCircle(64, 50, 20, 0x52AA);  // Purple core
+    display.fillCircle(64, 50, 15, 0x4CAF);  // Blue inner
+    display.fillCircle(64, 50, 8, 0x7BEF);   // Light blue center
+    
+    // GPIO symbol
+    display.setTextColor(0xFFFF);
+    display.setTextSize(1);
+    display.setCursor(58, 46);
+    display.print("GPIO");
+    display.setCursor(61, 55);
+    display.print("1");
+    
+    // Product name
+    display.setTextColor(0xDEFB);
+    display.setCursor(25, 85);
+    display.print("AtomS3 Logic");
+    display.setCursor(35, 95);
+    display.print("Analyzer");
+    
+    // Version
+    display.setTextColor(0x52AA);
+    display.setCursor(48, 110);
+    display.print("v2.2.0");
+    
+    // Flash effect
+    for (int i = 0; i < 3; i++) {
+        display.drawCircle(64, 50, 32, 0xFFFF);
+        delay(100);
+        display.drawCircle(64, 50, 32, 0x0000);
+        delay(100);
     }
 }
 
-// Gemini-Style Display Functions with Dark Theme
+// Gemini-style gradient background
 void LogicAnalyzer::drawGradientBackground() {
     // Gemini dark gradient from top to bottom (dark navy to dark purple)
     for(int i = 0; i < 128; i++) {
@@ -257,182 +288,191 @@ void LogicAnalyzer::drawGradientBackground() {
     }
 }
 
-void LogicAnalyzer::drawHeader() {
-    // Dark header area with subtle gradient
-    for(int i = 0; i < 22; i++) {
-        uint16_t gradColor = display.color565(12 + i, 8 + i/2, 20 + i*2);
-        display.drawLine(0, i, 128, i, gradColor);
-    }
-    
-    // Center-aligned title
-    display.setTextColor(0xDEFB);  // Light blue-white text
-    display.setTextSize(1);
-    display.setCursor(26, 5);  // Centered position
-    display.print("GPIO1 ANALYZER");
-    
-    // Left status indicator
-    display.fillCircle(8, 11, 4, capturing ? 0xF800 : 0x4CAF);  // Red when capturing, blue when ready
-    display.fillCircle(8, 11, 2, 0xFFFF);  // White highlight
-    
-    // Right WiFi indicator (will be updated by WiFi status function)
-    display.fillCircle(120, 11, 4, 0x2104);  // Will be updated with actual status
-    display.fillCircle(120, 11, 2, 0xFFFF);
-}
-
-void LogicAnalyzer::drawInitialStatus() {
-    // Main Status Card - Clean and centered
-    drawGeminiCard(8, 26, 112, 26, 0x2104, 0x4208, "");
-    
-    // Large centered status
-    display.setTextColor(0xF7BE);
-    display.setTextSize(1);
-    display.setCursor(52, 32);  // Centered
-    display.print("READY");
-    
-    // Right-aligned buffer info
-    display.setTextColor(0xDEFB);
-    display.setCursor(12, 42);
-    display.print("Buffer: 16K");
-    
-    // Right-aligned max rate
-    display.setCursor(72, 42);
-    display.print("Max: 10MHz");
-    
-    // WiFi Status - compact horizontal layout
-    drawGeminiCard(8, 56, 54, 18, 0x10A2, 0x2945, "");
-    display.setTextColor(0xDEFB);
-    display.setCursor(20, 64);  // Centered
-    display.print("WiFi");
-    
-    // GPIO Status - compact with Gemini colors
-    drawGeminiCard(66, 56, 54, 18, 0x2104, 0x52AA, "");
-    display.setTextColor(0xFFFF);
-    display.setCursor(75, 64);  // Centered
-    display.print("GPIO1");
-    
-    // Purple progress bar placeholder
-    display.drawRoundRect(8, 82, 112, 8, 4, 0x52AA);  // Purple border
-    display.fillRoundRect(10, 84, 108, 4, 2, 0x52AA);  // Purple fill
-}
-
-void LogicAnalyzer::drawStatusSection() {
-    // Main Status Card - larger and centered
-    uint16_t statusGrad1, statusGrad2;
-    if (capturing) {
-        // Pulsing red gradient when capturing
-        static uint8_t pulse = 0;
-        pulse += 10;
-        uint8_t intensity = 80 + (sin(pulse * 0.1) * 30);
-        statusGrad1 = display.color565(intensity, 15, 15);
-        statusGrad2 = display.color565(intensity + 40, intensity/3, 10);
-    } else {
-        // Calm blue gradient when ready
-        statusGrad1 = 0x2104;
-        statusGrad2 = 0x4208;
-    }
-    
-    drawGeminiCard(8, 26, 112, 26, statusGrad1, statusGrad2, "");
-    
-    // Large centered status text
-    display.setTextColor(0xF7BE);
-    display.setTextSize(1);
-    const char* statusText = capturing ? "CAPTURING" : "READY";
-    int textWidth = strlen(statusText) * 6;  // Approximate text width
-    display.setCursor((128 - textWidth) / 2, 32);
-    display.print(statusText);
-    
-    // Sample rate - centered on second line
-    display.setTextColor(0xDEFB);
-    display.setCursor(12, 42);
-    display.print("Rate: ");
-    if (sampleRate >= 1000000) {
-        display.printf("%.1fMHz", sampleRate/1000000.0);
-    } else if (sampleRate >= 1000) {
-        display.printf("%.1fkHz", sampleRate/1000.0);
-    } else {
-        display.printf("%dHz", sampleRate);
-    }
-    
-    // Buffer usage - right side
-    uint16_t bufUsage = getBufferUsage();
-    float percentage = (bufUsage * 100.0) / BUFFER_SIZE;
-    display.setCursor(70, 42);
-    display.printf("Buf: %.0f%%", percentage);
-}
-
-void LogicAnalyzer::drawChannelSection() {
-    bool gpio1State = readGPIO1();
-    
-    // GPIO1 Status with Gemini color scheme
-    uint16_t gpioGrad1, gpioGrad2;
-    if (gpio1State) {
-        // Bright blue gradient for HIGH (active state)
-        gpioGrad1 = 0x2945;  // Dark blue-purple
-        gpioGrad2 = 0x4CAF;  // Bright Gemini blue
-    } else {
-        // Muted purple gradient for LOW (inactive state)
-        gpioGrad1 = 0x2104;  // Very dark blue
-        gpioGrad2 = 0x52AA;  // Muted purple
-    }
-    
-    drawGeminiCard(6, 85, 58, 20, gpioGrad1, gpioGrad2, "");
-    display.setTextColor(0xFFFF);
-    display.setTextSize(1);
-    display.setCursor(12, 92);
-    display.print(gpio1State ? "HIGH" : "LOW");
-    
-    // Buffer status with modern Gemini design
-    uint16_t bufUsage = getBufferUsage();
-    float percentage = (bufUsage * 100.0) / BUFFER_SIZE;
-    
-    // Buffer percentage card without title
-    uint16_t bufColor1 = 0x1E3A, bufColor2 = 0x4A6F;
-    drawGeminiCard(68, 85, 56, 20, bufColor1, bufColor2, "");
-    display.setTextColor(0xE7FF);
-    display.setTextSize(1);
-    display.setCursor(74, 92);
-    display.printf("%.0f%%", percentage);
-    
-    // Purple progress bar
-    display.fillRoundRect(6, 110, 116, 8, 4, 0x2104);  // Dark background
-    if (bufUsage > 0) {
-        int barWidth = (bufUsage * 112) / BUFFER_SIZE;
-        
-        // Simple purple bar
-        display.fillRoundRect(8, 111, barWidth, 6, 3, 0x52AA);  // Purple color
-        
-        // Subtle glow border
-        if (barWidth > 2) {
-            display.drawRoundRect(7, 110, barWidth + 2, 8, 4, 0x52AA);
+// Glass morphism panel effect
+void LogicAnalyzer::drawGlassPanel(int x, int y, int w, int h) {
+    // Semi-transparent dark background with purple tint
+    for (int py = y; py < y + h; py++) {
+        for (int px = x; px < x + w; px++) {
+            uint16_t bgColor = display.color565(16, 12, 28);
+            display.drawPixel(px, py, bgColor);
         }
     }
-}
-
-void LogicAnalyzer::drawBottomSection() {
-    // Optional trigger info in the existing bottom area - only if space allows
-    if (triggerMode != TRIGGER_NONE) {
-        display.setTextColor(0xFD20, 0x0841);  // Dark background
-        display.setTextSize(1);
-        display.setCursor(85, 87);  // Right side of GPIO1 area
-        display.printf("T:%s", triggerArmed ? "ARM" : "WAIT");
+    
+    // Glass reflection highlight (top edge)
+    for (int px = x; px < x + w; px++) {
+        display.drawPixel(px, y, 0x52AA);
     }
     
-    // Bottom border line with Gemini accent color
-    display.drawLine(0, 127, 128, 127, 0x4A69);
+    // Subtle border
+    display.drawRect(x, y, w, h, 0x4CAF);
 }
 
-void LogicAnalyzer::drawCard(int x, int y, int w, int h, uint16_t color, const char* title) {
-    // Legacy card function - kept for compatibility
-    display.fillRect(x, y, w, h, color);
-    display.drawRect(x, y, w, h, 0x39E7);
+// Page 1: WiFi Information Display
+void LogicAnalyzer::drawWiFiPage() {
+    drawGradientBackground();
     
-    if (title) {
-        display.setTextColor(0xFFFF, color);
-        display.setTextSize(1);
-        display.setCursor(x + 2, y + 2);
-        display.print(title);
+    // Page title with purple accent
+    display.setTextColor(0x52AA);
+    display.setTextSize(2);
+    display.setCursor(30, 10);
+    display.print("WiFi");
+    
+    // Glass panel for main content
+    drawGlassPanel(8, 35, 112, 80);
+    
+    display.setTextSize(1);
+    display.setTextColor(0xFFFF);
+    
+    // WiFi Connection Status
+    display.setCursor(15, 45);
+    display.print("Status:");
+    display.setTextColor(WiFi.status() == WL_CONNECTED ? 0x4CAF : 0xF800);
+    display.setCursor(55, 45);
+    display.print(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected");
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        // Network Name (SSID)
+        display.setTextColor(0xFFFF);
+        display.setCursor(15, 60);
+        display.print("SSID:");
+        display.setTextColor(0xDEFB);
+        display.setCursor(15, 70);
+        String ssid = WiFi.SSID();
+        if (ssid.length() > 15) {
+            ssid = ssid.substring(0, 12) + "...";
+        }
+        display.print(ssid);
+        
+        // IP Address
+        display.setTextColor(0xFFFF);
+        display.setCursor(15, 85);
+        display.print("IP:");
+        display.setTextColor(0x4CAF);
+        display.setCursor(15, 95);
+        display.print(WiFi.localIP().toString());
+        
+        // Signal Strength
+        display.setTextColor(0xFFFF);
+        display.setCursor(15, 105);
+        display.print("Signal: ");
+        int rssi = WiFi.RSSI();
+        display.setTextColor(rssi > -50 ? 0x4CAF : rssi > -70 ? 0xFFEB : 0xF800);
+        display.printf("%ddBm", rssi);
+    } else if (ap_mode) {
+        // Access Point Information
+        display.setTextColor(0xFFEB);
+        display.setCursor(15, 60);
+        display.print("AP Mode Active");
+        display.setTextColor(0x4CAF);
+        display.setCursor(15, 75);
+        display.print("192.168.4.1");
+        display.setTextColor(0xDEFB);
+        display.setCursor(15, 90);
+        display.print("AtomS3_LogicAP");
+    }
+    
+    // Page indicator
+    display.setTextColor(0x52AA);
+    display.setCursor(110, 120);
+    display.print("1/2");
+}
+
+// Page 2: System Information Display
+void LogicAnalyzer::drawSystemPage() {
+    drawGradientBackground();
+    
+    // Page title with blue accent
+    display.setTextColor(0x4CAF);
+    display.setTextSize(2);
+    display.setCursor(20, 10);
+    display.print("System");
+    
+    // Glass panel for main content
+    drawGlassPanel(8, 35, 112, 80);
+    
+    display.setTextSize(1);
+    
+    // CPU Usage (estimated based on capture activity)
+    display.setTextColor(0xFFFF);
+    display.setCursor(15, 45);
+    display.print("CPU:");
+    int cpu_usage = capturing ? 85 : 15; // Rough estimation
+    display.setTextColor(cpu_usage > 80 ? 0xF800 : cpu_usage > 50 ? 0xFFEB : 0x4CAF);
+    display.setCursor(50, 45);
+    display.printf("%d%%", cpu_usage);
+    
+    // Free Heap
+    display.setTextColor(0xFFFF);
+    display.setCursor(15, 60);
+    display.print("RAM:");
+    uint32_t free_heap = ESP.getFreeHeap();
+    uint32_t total_heap = ESP.getHeapSize();
+    int heap_percent = ((total_heap - free_heap) * 100) / total_heap;
+    display.setTextColor(heap_percent > 80 ? 0xF800 : heap_percent > 60 ? 0xFFEB : 0x4CAF);
+    display.setCursor(50, 60);
+    display.printf("%dKB", free_heap / 1024);
+    
+    // Flash Usage
+    display.setTextColor(0xFFFF);
+    display.setCursor(15, 75);
+    display.print("Flash:");
+    uint32_t flash_size = ESP.getFlashChipSize();
+    display.setTextColor(0x4CAF);
+    display.setCursor(50, 75);
+    display.printf("%dMB", flash_size / (1024 * 1024));
+    
+    // Uptime
+    display.setTextColor(0xFFFF);
+    display.setCursor(15, 90);
+    display.print("Uptime:");
+    display.setTextColor(0xDEFB);
+    display.setCursor(15, 100);
+    unsigned long uptime_sec = millis() / 1000;
+    unsigned long hours = uptime_sec / 3600;
+    unsigned long minutes = (uptime_sec % 3600) / 60;
+    display.printf("%luh %lum", hours, minutes);
+    
+    // Page indicator
+    display.setTextColor(0x4CAF);
+    display.setCursor(110, 120);
+    display.print("2/2");
+}
+
+// Switch between pages
+void LogicAnalyzer::switchPage() {
+    current_page = (current_page + 1) % 2;
+}
+
+// Set AP mode status
+void LogicAnalyzer::setAPMode(bool isAPMode) {
+    ap_mode = isAPMode;
+}
+
+// Update the current page display
+void LogicAnalyzer::updateDisplay() {
+    unsigned long now = millis();
+    
+    // Only update display every second to reduce flicker
+    if (now - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
+        if (current_page == 0) {
+            drawWiFiPage();
+        } else {
+            drawSystemPage();
+        }
+        
+        lastDisplayUpdate = now;
     }
 }
+
+// Legacy compatibility methods - these now redirect to the new dual-page system
+void LogicAnalyzer::drawNetworkPage() {
+    drawWiFiPage();
+}
+
+void LogicAnalyzer::drawSystemStatsPage() {
+    drawSystemPage();
+}
+
 
 void LogicAnalyzer::drawGeminiCard(int x, int y, int w, int h, uint16_t grad1, uint16_t grad2, const char* title) {
     // Gemini-style card with gradient and shadow
@@ -477,59 +517,6 @@ void LogicAnalyzer::drawGeminiCard(int x, int y, int w, int h, uint16_t grad1, u
     }
 }
 
-// WiFi status integration functions
-void LogicAnalyzer::updateWiFiStatus(bool isConnected, bool isAP, const String& networkName, const String& ipAddress) {
-    static bool lastConnected = false;
-    static bool lastAP = false;
-    static String lastNetwork = "";
-    static String lastIP = "";
-    
-    // Only update if something changed
-    if (isConnected != lastConnected || isAP != lastAP || 
-        networkName != lastNetwork || ipAddress != lastIP) {
-        
-        // Clear WiFi status area with dark background
-        display.fillRect(4, 32, 120, 20, 0x0841);
-        
-        // WiFi status indicator with dark theme colors
-        uint16_t statusColor;
-        const char* statusText;
-        
-        if (isConnected) {
-            statusColor = 0x4CAF;  // Blue (Gemini accent)
-            statusText = "WiFi";
-            display.fillCircle(10, 36, 3, 0x4CAF);  // Blue dot
-        } else if (isAP) {
-            statusColor = 0x52AA;  // Purple (Gemini secondary)  
-            statusText = "AP";
-            display.fillCircle(10, 36, 3, 0x52AA);  // Purple dot
-        } else {
-            statusColor = 0x8410;  // Dark red
-            statusText = "No WiFi";
-            display.fillCircle(10, 36, 3, 0x8410);  // Dark red dot
-        }
-        
-        display.setTextColor(statusColor, 0x0841);
-        display.setTextSize(1);
-        display.setCursor(20, 33);
-        display.print(statusText);
-        
-        // Network name (truncated if too long) with light text
-        display.setTextColor(0xDEFB, 0x0841);
-        display.setCursor(6, 42);
-        String truncatedNetwork = networkName;
-        if (truncatedNetwork.length() > 16) {
-            truncatedNetwork = truncatedNetwork.substring(0, 13) + "...";
-        }
-        display.print(truncatedNetwork);
-        
-        // Update cached values
-        lastConnected = isConnected;
-        lastAP = isAP;
-        lastNetwork = networkName;
-        lastIP = ipAddress;
-    }
-}
 
 void LogicAnalyzer::addLogEntry(const String& message) {
     String timestamp = String(millis());
