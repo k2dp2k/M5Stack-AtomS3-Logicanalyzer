@@ -1,16 +1,16 @@
-# 🔬 ESP32 AtomS3 Logic Analyzer
+# 🔬 M5Stack ESP32S3 AtomProbe
 
-> **Professional-grade dual-mode analyzer with Flash Storage and Gemini-style UI**
+> **Professional-grade dual-mode signal probe with massive Flash Storage and Gemini-style UI**
 
-[![Version](https://img.shields.io/badge/Version-2.3.0-brightgreen.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
-[![Flash Storage](https://img.shields.io/badge/Flash%20Storage-5.6MB%20Partition-blue.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
-[![UART Monitor](https://img.shields.io/badge/UART-Professional-yellow.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
+[![Version](https://img.shields.io/badge/Version-3.0.0-brightgreen.svg)](https://github.com/k2dp2k/M5Stack-ESP32S3-AtomProbe)
+[![Flash Storage](https://img.shields.io/badge/Flash%20Storage-5.6MB%20Partition-blue.svg)](https://github.com/k2dp2k/M5Stack-ESP32S3-AtomProbe)
+[![Signal Probe](https://img.shields.io/badge/Signal%20Probe-Professional-yellow.svg)](https://github.com/k2dp2k/M5Stack-ESP32S3-AtomProbe)
 [![PlatformIO CI](https://img.shields.io/badge/PlatformIO-Ready-orange.svg)](https://platformio.org/)
 [![ESP32-S3](https://img.shields.io/badge/ESP32--S3-Compatible-blue.svg)](https://www.espressif.com/en/products/socs/esp32-s3)
 [![M5Stack](https://img.shields.io/badge/M5Stack-AtomS3-red.svg)](https://docs.m5stack.com/en/core/AtomS3)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A **professional-grade dual-mode analyzer** built exclusively for the M5Stack AtomS3 featuring:
+A **professional-grade dual-mode signal probe** built exclusively for the M5Stack AtomS3 featuring:
 
 🔋 **High-Speed Logic Analysis** - Up to 10MHz sampling on GPIO1 with 16,384-sample buffer  
 💾 **Flash Storage System** - Store up to 500,000+ UART entries with 5.6MB LittleFS partition
@@ -73,8 +73,8 @@ A **professional-grade dual-mode analyzer** built exclusively for the M5Stack At
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer.git
-   cd M5Stack-AtomS3-Logicanalyzer
+   git clone https://github.com/k2dp2k/M5Stack-ESP32S3-AtomProbe.git
+   cd M5Stack-ESP32S3-AtomProbe
    ```
 
 2. **Build and upload** (M5Stack AtomS3)
@@ -91,7 +91,7 @@ A **professional-grade dual-mode analyzer** built exclusively for the M5Stack At
 ### 📶 WiFi Setup with Auto-Fallback
 
 **First-time setup:**
-- Device creates AP: `AtomS3-LogicAnalyzer` (password: `logic123`)
+- Device creates AP: `AtomS3-AtomProbe` (password: `probe123`)
 - Connect and go to `http://192.168.4.1/config`
 - Enter your WiFi credentials
 - Device will restart and connect to your network
@@ -112,8 +112,8 @@ A **professional-grade dual-mode analyzer** built exclusively for the M5Stack At
 The AtomS3 features a modern **dual-page display system** optimized for the compact 0.85" screen:
 
 ### 🎨 **Startup Experience**
-- **Animated startup logo** with AtomS3 Logic Analyzer branding
-- **Version information** display (v2.2.0)
+- **Animated startup logo** with AtomS3 AtomProbe branding
+- **Version information** display (v3.0.0)
 - **Purple/blue gradient** color scheme with flash effects
 - **3-second display** before switching to main interface
 
@@ -182,7 +182,7 @@ The AtomS3 Logic Analyzer features an enterprise-grade UART monitoring system wi
 ### 🔌 Hardware Setup
 
 ```
-M5Stack AtomS3 - Logic + UART Communication Analyzer:
+M5Stack AtomS3 - AtomProbe Dual-Mode Signal Probe:
 ┌───────────────────────────────────────────┐
 │ 📺 [0.85" Display] 🔘 [Button]          │
 │                                        │
@@ -250,7 +250,7 @@ M5Stack AtomS3 - Logic + UART Communication Analyzer:
 ### 📱 Device Display
 
 **Information shown:**
-- **GPIO1 ANALYZER** - Main title with status indicators
+- **ATOMPROBE** - Main title with status indicators
 - **READY/CAPTURING** - Current logic analyzer operation state
 - **Rate: X.XMHz** - GPIO1 sampling frequency (up to 10MHz)
 - **Buf: XX%** - Logic analyzer buffer usage with purple progress bar
@@ -389,7 +389,7 @@ This project prioritizes **single-channel performance** over multi-channel compl
 ```json
 {
   "device": "M5Stack-AtomS3",
-  "analyzer_version": "2.1.0",
+  "analyzer_version": "3.0.0",
   "logic_analyzer": {
     "channel_config": {
       "pin": "GPIO1",
@@ -562,7 +562,8 @@ Contributions welcome! Please feel free to submit pull requests or open issues.
 
 **Made with ❤️ for the maker community** 🚀
 
-**🆕 Version 2.3.0 Features:**
+**🆕 Version 3.0.0 - AtomProbe Rebranding:**
+- 🎮 **Complete Rebranding** - From "Logic Analyzer" to "AtomProbe" - better describes dual functionality
 - 🎨 **Modern Animated Logo** - Blue-purple gradient with glass-morphism effects
 - 🔧 **Fixed Display Flickering** - Optimized refresh rates and redraw logic  
 - 💾 **Enhanced Flash Storage** - Improved storage reliability and performance

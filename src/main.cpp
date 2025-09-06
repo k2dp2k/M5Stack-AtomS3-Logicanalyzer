@@ -12,8 +12,8 @@
 #endif
 
 // Access Point Configuration
-const char* ap_ssid = "AtomS3-LogicAnalyzer";
-const char* ap_password = "logic123";  // At least 8 characters
+const char* ap_ssid = "AtomS3-AtomProbe";
+const char* ap_password = "probe123";  // At least 8 characters
 
 // WiFi Configuration
 Preferences preferences;
@@ -51,7 +51,7 @@ void setup() {
     AtomS3.begin(cfg);
     display = AtomS3.Display;
     
-    Serial.println("AtomS3 Logic Analyzer Starting...");
+    Serial.println("AtomS3 AtomProbe Starting...");
     
     // Initialize logic analyzer
     analyzer.begin();
@@ -62,14 +62,14 @@ void setup() {
     delay(3000);  // Show logo for 3 seconds
 #else
     Serial.begin(115200);
-    Serial.println("ESP32 Logic Analyzer Starting...");
+    Serial.println("ESP32 AtomProbe Starting...");
     
     // Initialize logic analyzer
     analyzer.begin();
 #endif
     
     // Initialize preferences
-    preferences.begin("logic_analyzer", false);
+    preferences.begin("atomprobe", false);
     
     // Pass preferences instance to analyzer
     analyzer.setPreferences(&preferences);
@@ -385,7 +385,7 @@ void setupWebServer() {
     server.on("/download/logs", HTTP_GET, [](AsyncWebServerRequest *request){
         String logs = analyzer.getLogsAsPlainText();
         String timestamp = String(millis());
-        String filename = "atoms3_logs_" + timestamp + ".txt";
+        String filename = "atomprobe_logs_" + timestamp + ".txt";
         
         AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", logs);
         response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
@@ -398,7 +398,7 @@ void setupWebServer() {
     server.on("/download/uart", HTTP_GET, [](AsyncWebServerRequest *request){
         String uartLogs = analyzer.getUartLogsAsPlainText();
         String timestamp = String(millis());
-        String filename = "atoms3_uart_" + timestamp + ".txt";
+        String filename = "atomprobe_uart_" + timestamp + ".txt";
         
         AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", uartLogs);
         response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
@@ -421,11 +421,11 @@ void setupWebServer() {
         
         if (format == "csv") {
             data = analyzer.getDataAsCSV();
-            filename = "atoms3_capture_" + timestamp + ".csv";
+            filename = "atomprobe_capture_" + timestamp + ".csv";
             contentType = "text/csv";
         } else {
             data = analyzer.getDataAsJSON();
-            filename = "atoms3_capture_" + timestamp + ".json";
+            filename = "atomprobe_capture_" + timestamp + ".json";
             contentType = "application/json";
         }
         
@@ -441,7 +441,7 @@ void setupWebServer() {
 }
 
 String getIndexHTML() {
-    return "<!DOCTYPE html><html><head><title>AtomS3 Logic Analyzer</title><meta charset='UTF-8'>" 
+    return "<!DOCTYPE html><html><head><title>AtomS3 AtomProbe</title><meta charset='UTF-8'>"
            "<style>" 
            "*{margin:0;padding:0;box-sizing:border-box;}" 
            "body{font-family:'Google Sans',Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:radial-gradient(ellipse at top,#1a1a2e 0%,#16213e 50%,#0f0f1a 100%);color:#e8eaed;min-height:100vh;line-height:1.6;}" 
@@ -477,7 +477,7 @@ String getIndexHTML() {
            "@media (max-width:768px){.grid{grid-template-columns:1fr;}.controls{justify-content:center;}}"
            "</style></head><body>" 
            "<div class='container'>" 
-           "<h1>AtomS3 Logic Analyzer</h1>" 
+           "<h1>AtomS3 AtomProbe</h1>"
            "<div class='gemini-card'>" 
            "<h2>🌐 Network Connection</h2>" 
            "<div class='info-grid'>" 

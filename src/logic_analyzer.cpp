@@ -39,14 +39,14 @@ LogicAnalyzer::~LogicAnalyzer() {
 }
 
 void LogicAnalyzer::begin() {
-    Serial.println("Initializing GPIO1 Logic Analyzer...");
+    Serial.println("Initializing AtomProbe GPIO1 Monitor...");
     initializeGPIO1();
     clearBuffer();
     
     // Initialize LittleFS for potential flash storage
     initFlashStorage();
     
-    Serial.printf("GPIO1 Logic Analyzer initialized at %d Hz with %d sample buffer\n", sampleRate, BUFFER_SIZE);
+    Serial.printf("AtomProbe GPIO1 Monitor initialized at %d Hz with %d sample buffer\\n", sampleRate, BUFFER_SIZE);
 }
 
 void LogicAnalyzer::initializeGPIO1() {
@@ -212,7 +212,7 @@ bool LogicAnalyzer::isBufferFull() const {
 }
 
 void LogicAnalyzer::printStatus() {
-    Serial.println("=== GPIO1 Logic Analyzer Status ===");
+    Serial.println("=== AtomProbe GPIO1 Monitor Status ===");
     Serial.printf("Capturing: %s\n", capturing ? "YES" : "NO");
     Serial.printf("Sample Rate: %d Hz\n", sampleRate);
     Serial.printf("GPIO Pin: %d\n", gpio1Pin);
@@ -269,15 +269,15 @@ void LogicAnalyzer::drawStartupLogo() {
     // Product name with modern font
     display.setTextColor(0xFFFF);
     display.setTextSize(1);
-    display.setCursor(25, 95);
-    display.print("AtomS3 Logic");
-    display.setCursor(35, 105);
-    display.print("Analyzer");
+    display.setCursor(31, 95);
+    display.print("AtomS3");
+    display.setCursor(23, 105);
+    display.print("AtomProbe");
     
     // Version with accent color
     display.setTextColor(0x7BEF);
     display.setCursor(48, 118);
-    display.print("v2.2.0");
+    display.print("v3.0.0");
     
     // Final glow effect
     for (int i = 0; i < 2; i++) {
@@ -377,7 +377,7 @@ void LogicAnalyzer::drawWiFiPage() {
         display.print("192.168.4.1");
         display.setTextColor(0xDEFB);
         display.setCursor(15, 90);
-        display.print("AtomS3_LogicAP");
+        display.print("AtomS3_AtomProbe");
     }
     
     // Page indicator
@@ -573,7 +573,7 @@ void LogicAnalyzer::clearLogs() {
 }
 
 String LogicAnalyzer::getLogsAsPlainText() {
-    String result = "# AtomS3 Logic Analyzer - Serial Logs\n";
+    String result = "# AtomS3 AtomProbe - Serial Logs\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Total entries: " + String(serialLogBuffer.size()) + "\n\n";
     
@@ -589,7 +589,7 @@ String LogicAnalyzer::getLogsAsPlainText() {
 }
 
 String LogicAnalyzer::getDataAsCSV() {
-    String result = "# AtomS3 Logic Analyzer - GPIO1 Capture Data (CSV Format)\n";
+    String result = "# AtomS3 AtomProbe - GPIO1 Capture Data (CSV Format)\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Sample Rate: " + String(sampleRate) + " Hz\n";
     result += "# GPIO Pin: " + String(gpio1Pin) + "\n";
@@ -838,7 +838,7 @@ String LogicAnalyzer::getUartConfigAsJSON() {
 }
 
 String LogicAnalyzer::getUartLogsAsPlainText() {
-    String result = "# AtomS3 Logic Analyzer - UART Communication Logs\n";
+    String result = "# AtomS3 AtomProbe - UART Communication Logs\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Monitoring Enabled: " + String(uartMonitoringEnabled ? "YES" : "NO") + "\n";
     result += "# Last Activity: " + String(lastUartActivity) + "ms\n";
