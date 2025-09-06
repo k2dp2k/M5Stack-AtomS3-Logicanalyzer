@@ -24,6 +24,7 @@ LogicAnalyzer::LogicAnalyzer() {
     uartBytesReceived = 0;
     uartBytesSent = 0;
     preferences = nullptr;
+    maxUartEntries = MAX_UART_ENTRIES;  // Initialize with default
     
     sampleInterval = 1000000 / sampleRate; // microseconds
 }
@@ -722,7 +723,7 @@ void LogicAnalyzer::addUartEntry(const String& data, bool isRx) {
     uartLogBuffer.push_back(uartEntry);
     
     // Use smart buffer management instead of simple deletion
-    if (uartLogBuffer.size() > MAX_UART_ENTRIES) {
+    if (uartLogBuffer.size() > maxUartEntries) {
         compactUartLogs();  // Remove oldest 20% when full
     }
     
@@ -739,7 +740,7 @@ String LogicAnalyzer::getUartLogsAsJSON() {
     }
     
     doc["count"] = uartLogBuffer.size();
-    doc["max_entries"] = MAX_UART_ENTRIES;
+    doc["max_entries"] = maxUartEntries;
     doc["monitoring_enabled"] = uartMonitoringEnabled;
     doc["last_activity"] = lastUartActivity;
     doc["bytes_received"] = uartBytesReceived;
@@ -877,19 +878,40 @@ size_t LogicAnalyzer::getUartMemoryUsage() const {
 }
 
 bool LogicAnalyzer::isUartBufferFull() const {
-    return uartLogBuffer.size() >= MAX_UART_ENTRIES;
+    return uartLogBuffer.size() >= maxUartEntries;
 }
 
 void LogicAnalyzer::compactUartLogs() {
     // Remove oldest 20% of entries when buffer is getting full
-    if (uartLogBuffer.size() >= MAX_UART_ENTRIES * 0.9) {
-        size_t removeCount = MAX_UART_ENTRIES * 0.2;
+    if (uartLogBuffer.size() >= maxUartEntries * 0.9) {
+        size_t removeCount = maxUartEntries * 0.2;
         uartLogBuffer.erase(uartLogBuffer.begin(), uartLogBuffer.begin() + removeCount);
         
-        String compactMsg = "UART buffer compacted: removed " + String(removeCount) + " oldest entries";
+        String compactMsg = "UART buffer compacted: removed " + String(removeCount) + " oldest entries (" + String(uartLogBuffer.size()) + "/" + String(maxUartEntries) + " remaining)";
         addLogEntry(compactMsg);
         Serial.println(compactMsg);
     }
+}
+
+void LogicAnalyzer::setUartBufferSize(size_t maxEntries) {
+    maxUartEntries = maxEntries;
+    
+    // If current buffer is larger than new limit, compact it
+    while (uartLogBuffer.size() > maxUartEntries) {
+        uartLogBuffer.erase(uartLogBuffer.begin());
+    }
+    
+    String msg = "UART buffer size set to " + String(maxUartEntries) + " entries";
+    addLogEntry(msg);
+    Serial.println(msg);
+}
+
+size_t LogicAnalyzer::getMaxUartEntries() const {
+    return maxUartEntries;
+}
+
+float LogicAnalyzer::getUartBufferUsagePercent() const {
+    return (uartLogBuffer.size() * 100.0) / maxUartEntries;
 }
 
 #endif

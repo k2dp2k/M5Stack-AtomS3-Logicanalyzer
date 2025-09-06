@@ -255,7 +255,30 @@ void setupWebServer() {
         doc["count"] = analyzer.getUartLogCount();
         doc["memory_usage"] = analyzer.getUartMemoryUsage();
         doc["buffer_full"] = analyzer.isUartBufferFull();
-        doc["max_entries"] = 1000;  // MAX_UART_ENTRIES value
+        doc["max_entries"] = analyzer.getMaxUartEntries();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Set UART buffer size
+    server.on("/api/uart/buffersize", HTTP_POST, [](AsyncWebServerRequest *request){
+        size_t newSize = 10000;  // Default
+        if (request->hasParam("size", true)) {
+            newSize = request->getParam("size", true)->value().toInt();
+        }
+        
+        // Limit buffer size to prevent memory issues (max 50K entries)
+        if (newSize < 100) newSize = 100;
+        if (newSize > 50000) newSize = 50000;
+        
+        analyzer.setUartBufferSize(newSize);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["new_size"] = newSize;
+        doc["message"] = "UART buffer size updated to " + String(newSize) + " entries";
         
         String response;
         serializeJson(doc, response);
@@ -475,8 +498,17 @@ String getIndexHTML() {
            "<input id='uart-rxpin' type='number' value='43' min='0' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>TX Pin:</label>" 
            "<input id='uart-txpin' type='number' value='44' min='0' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>" 
+           "<select id='uart-buffersize' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='1000'>1,000 entries (~30sec @ 9600 baud)</option>" 
+           "<option value='5000'>5,000 entries (~2.5min @ 9600 baud)</option>" 
+           "<option value='10000' selected>10,000 entries (~5min @ 9600 baud)</option>" 
+           "<option value='25000'>25,000 entries (~12min @ 9600 baud)</option>" 
+           "<option value='50000'>50,000 entries (~25min @ 9600 baud)</option></select></div>" 
            "</div>" 
-           "<div style='margin-top:15px;'><button class='gemini-btn' onclick='saveUartConfig()'>✅ Apply Configuration</button></div>" 
+           "<div style='margin-top:15px;'>" 
+           "<button class='gemini-btn' onclick='saveUartConfig()'>✅ Apply Configuration</button>" 
+           "<button class='gemini-btn secondary' onclick='saveBufferSize()' style='margin-left:10px;'>💾 Set Buffer Size</button></div>"
            "</div>" 
            "<div id='uart-status' class='info-grid' style='margin:10px 0;'>" 
            "<div class='info-item'><strong>Status:</strong> <span id='uart-monitoring-status'>Disabled</span></div>" 
@@ -506,7 +538,8 @@ String getIndexHTML() {
            "function downloadUartLogs(){window.open('/download/uart','_blank');}" 
            "function toggleUartConfig(){const config=document.getElementById('uart-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadUartConfig();}}" 
            "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;}).catch(e=>console.error('UART config load error:',e));}"
-           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}"
+           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}" 
+           "function saveBufferSize(){const formData=new FormData();formData.append('size',document.getElementById('uart-buffersize').value);fetch('/api/uart/buffersize',{method:'POST',body:formData}).then(r=>r.json()).then(d=>{alert('Buffer size updated to '+d.new_size+' entries');loadUartLogs();});}"
            "function updateAll(){" 
            "fetch('/api/status').then(r=>r.json()).then(d=>{" 
            "const indicator=d.capturing?'<span class=\"gemini-indicator capturing\"></span>':'<span class=\"gemini-indicator ready\"></span>';" 

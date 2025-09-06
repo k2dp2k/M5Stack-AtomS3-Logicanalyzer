@@ -64,8 +64,8 @@ private:
     std::vector<String> serialLogBuffer;
     std::vector<String> uartLogBuffer;
     static const size_t MAX_LOG_ENTRIES = 100;
-    static const size_t MAX_UART_ENTRIES = 1000;  // Increased from 200 to 1000 entries
-    static const size_t UART_MSG_MAX_LENGTH = 300;  // Max length per UART message
+    static const size_t MAX_UART_ENTRIES = 10000;  // 10K entries for 30+ seconds at high baud
+    static const size_t UART_MSG_MAX_LENGTH = 500;  // Increased to 500 chars per message
     
     // UART monitoring configuration
     struct UartConfig {
@@ -89,6 +89,9 @@ private:
     
     // Preferences for persistent storage
     Preferences* preferences;
+    
+    // Dynamic UART buffer management
+    size_t maxUartEntries;  // Configurable max entries
     
     // Private methods - optimized for GPIO1
     void initializeGPIO1();
@@ -149,6 +152,9 @@ public:
     size_t getUartMemoryUsage() const;
     bool isUartBufferFull() const;
     void compactUartLogs();  // Remove oldest entries when buffer is getting full
+    void setUartBufferSize(size_t maxEntries);  // Dynamic buffer sizing
+    size_t getMaxUartEntries() const;
+    float getUartBufferUsagePercent() const;
     
     // Data export
     String getDataAsCSV();
