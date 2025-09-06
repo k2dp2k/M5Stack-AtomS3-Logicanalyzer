@@ -836,8 +836,8 @@ void LogicAnalyzer::loadUartConfig() {
         uartConfig.dataBits = preferences->getUChar("uart_data", 8);
         uartConfig.parity = preferences->getUChar("uart_parity", 0);
         uartConfig.stopBits = preferences->getUChar("uart_stop", 1);
-        uartConfig.rxPin = preferences->getUChar("uart_rx_pin", 43);
-        uartConfig.txPin = preferences->getUChar("uart_tx_pin", 44);
+        uartConfig.rxPin = preferences->getUChar("uart_rx_pin", 7);
+        uartConfig.txPin = preferences->getChar("uart_tx_pin", -1);
         uartConfig.enabled = preferences->getBool("uart_enabled", false);
         
         String configMsg = "UART config loaded: " + String(uartConfig.baudrate) + " baud, " + 
@@ -852,8 +852,8 @@ void LogicAnalyzer::loadUartConfig() {
         uartConfig.dataBits = 8;
         uartConfig.parity = 0;
         uartConfig.stopBits = 1;
-        uartConfig.rxPin = 43;
-        uartConfig.txPin = 44;
+        uartConfig.rxPin = 7;
+        uartConfig.txPin = -1;
         uartConfig.enabled = false;
         addLogEntry("UART config loaded (defaults - no preferences available)");
         Serial.println("UART config loaded (defaults)");

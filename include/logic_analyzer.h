@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <vector>
+#include <LittleFS.h>
 
 #ifdef ATOMS3_BUILD
     #include <M5AtomS3.h>
@@ -73,8 +74,8 @@ private:
         uint8_t dataBits = 8;
         uint8_t parity = 0;  // 0=None, 1=Odd, 2=Even
         uint8_t stopBits = 1;
-        uint8_t rxPin = 43;  // AtomS3 GPIO43 (G43)
-        uint8_t txPin = 44;  // AtomS3 GPIO44 (G44)
+        uint8_t rxPin = 7;   // AtomS3 GPIO7 (G7) - RX only monitoring
+        uint8_t txPin = -1;  // TX disabled (not connected)
         bool enabled = false;
     };
     
@@ -92,6 +93,8 @@ private:
     
     // Dynamic UART buffer management
     size_t maxUartEntries;  // Configurable max entries
+    bool useFlashStorage;   // Use LittleFS instead of RAM for UART logs
+    String uartLogFileName; // Flash storage file name
     
     // Private methods - optimized for GPIO1
     void initializeGPIO1();
@@ -155,6 +158,12 @@ public:
     void setUartBufferSize(size_t maxEntries);  // Dynamic buffer sizing
     size_t getMaxUartEntries() const;
     float getUartBufferUsagePercent() const;
+    
+    // Flash storage options
+    void enableFlashStorage(bool enable = true);  // Switch between RAM and Flash storage
+    bool isFlashStorageEnabled() const;
+    void initFlashStorage();  // Initialize LittleFS
+    void clearFlashUartLogs();  // Clear flash-stored logs
     
     // Data export
     String getDataAsCSV();
