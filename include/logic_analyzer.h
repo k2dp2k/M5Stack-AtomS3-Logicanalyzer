@@ -65,8 +65,8 @@ private:
     std::vector<String> serialLogBuffer;
     std::vector<String> uartLogBuffer;
     static const size_t MAX_LOG_ENTRIES = 100;
-    static const size_t MAX_UART_ENTRIES = 10000;  // 10K entries for 30+ seconds at high baud
-    static const size_t UART_MSG_MAX_LENGTH = 500;  // Increased to 500 chars per message
+    static const size_t MAX_UART_ENTRIES = 1000000;  // 1M entries - utilize full 8MB Flash capacity
+    static const size_t UART_MSG_MAX_LENGTH = 1000;  // Increased to 1000 chars per message for longer data
     
     // UART monitoring configuration
     struct UartConfig {
