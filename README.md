@@ -7,7 +7,7 @@
 [![M5Stack](https://img.shields.io/badge/M5Stack-AtomS3-red.svg)](https://docs.m5stack.com/en/core/AtomS3)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A sleek, wireless logic analyzer built for the **M5Stack AtomS3** with a stunning **Gemini-inspired dark UI**. Capture digital signals at up to **10MHz** on GPIO1 with real-time visualization on both the device's 0.85" display and a beautiful web interface.
+A specialized, wireless logic analyzer built **exclusively for the M5Stack AtomS3** with a stunning **Gemini-inspired dark UI**. This single-channel design captures digital signals at up to **10MHz on GPIO1 only**, optimized for maximum performance with real-time visualization on both the device's 0.85" display and a beautiful web interface.
 
 ## ✨ Features
 
@@ -18,11 +18,11 @@ A sleek, wireless logic analyzer built for the **M5Stack AtomS3** with a stunnin
 - **Purple accent colors** throughout for consistency
 - **Smooth animations** and glow effects
 
-### ⚡ **High-Performance Analysis**
-- **Single GPIO1 channel** optimized for maximum sampling rate
-- **Up to 10MHz sampling** with microsecond precision
-- **16,384 sample buffer** for extended capture sessions
-- **Real-time triggering** with multiple modes
+### ⚡ **High-Performance Single-Channel Analysis**
+- **GPIO1 ONLY** - dedicated single-channel design for maximum performance
+- **Up to 10MHz sampling** with microsecond precision (4x faster than multi-channel)
+- **16,384 sample buffer** - 4x larger than typical multi-channel designs
+- **Real-time triggering** with multiple modes (rising, falling, both, level)
 - **Wireless operation** via WiFi connectivity
 
 ### 🌐 **Modern Web Interface**
@@ -32,12 +32,12 @@ A sleek, wireless logic analyzer built for the **M5Stack AtomS3** with a stunnin
 - **WiFi configuration** with AP fallback mode
 - **Serial log viewing** for debugging
 
-### 📱 **Compact Hardware**
-- **M5Stack AtomS3** (24×24×10mm) ultra-compact form factor
-- **0.85" TFT display** (128x128 pixels) with crisp visuals
+### 📱 **Specialized AtomS3 Hardware**
+- **M5Stack AtomS3 ONLY** - (24×24×10mm) ultra-compact form factor
+- **GPIO1 input** - single-channel optimized for maximum speed
+- **0.85" TFT display** (128x128 pixels) with Gemini-style UI
 - **Physical button** for start/stop capture
 - **USB-C connectivity** for programming and power
-- **WiFi connectivity** for wireless operation
 
 ## 🛠️ Quick Start
 
@@ -50,8 +50,8 @@ A sleek, wireless logic analyzer built for the **M5Stack AtomS3** with a stunnin
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/esp32-logicanalyzer.git
-   cd esp32-logicanalyzer
+   git clone https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer.git
+   cd M5Stack-AtomS3-Logicanalyzer
    ```
 
 2. **Build and upload** (M5Stack AtomS3)
@@ -82,20 +82,26 @@ A sleek, wireless logic analyzer built for the **M5Stack AtomS3** with a stunnin
 ### 🔌 Hardware Setup
 
 ```
-M5Stack AtomS3 Pinout:
-┌───────────────────┐
-│  [Display] [Button]  │
-│                    │
-│ GPIO1 ◀─── Signal In │  ← Connect your signal here
-│                    │
-│ GND   ◀─── Ground    │  ← Common ground
-└───────────────────┘
+M5Stack AtomS3 - Single Channel Logic Analyzer:
+┌───────────────────────────────┐
+│ 📺 [0.85" Display] 🔘 [Button] │
+│                              │
+│ GPIO1 ◀── 🔌 SIGNAL INPUT       │  ← Connect your digital signal here
+│                              │  ← (3.3V logic levels only)
+│ GND   ◀── ⚡ COMMON GROUND        │  ← Connect signal ground
+│                              │
+│ 💻 USB-C (Power + Programming)  │
+└───────────────────────────────┘
+
+🔴 IMPORTANT: Only GPIO1 is used for signal capture!
+🟢 This design sacrifices multi-channel for maximum single-channel performance.
 ```
 
-**Signal Requirements:**
+**Signal Requirements (GPIO1 ONLY):**
 - **Voltage:** 3.3V logic levels (0V = LOW, 3.3V = HIGH)
-- **Frequency:** DC to 10MHz
-- **Input impedance:** High-Z with internal pull-up
+- **Frequency:** DC to 10MHz (single-channel optimized)
+- **Input impedance:** High-Z with internal pull-up resistor
+- **Connection:** GPIO1 pin + GND (2-wire connection)
 
 ### 🌐 Web Interface
 
@@ -108,9 +114,9 @@ M5Stack AtomS3 Pinout:
 
 **Real-time Status:**
 - **Capture State** - READY/CAPTURING with color coding
-- **Sample Rate** - Current sampling frequency
-- **Buffer Usage** - Memory utilization percentage
-- **GPIO1 State** - Live signal level (HIGH/LOW)
+- **Sample Rate** - Current sampling frequency (up to 10MHz)
+- **Buffer Usage** - Memory utilization percentage (16,384 samples)
+- **GPIO1 State** - Live signal level display (HIGH/LOW with colors)
 
 ### 📱 Device Display
 
@@ -157,9 +163,10 @@ M5Stack AtomS3 Pinout:
 | **Sample Buffer** | 16,384 samples |
 | **Max Sample Rate** | 10MHz (GPIO1 optimized) |
 | **Timing Precision** | 1μs resolution |
-| **Input Channels** | 1 (GPIO1) |
+| **Input Channels** | 1 (GPIO1 ONLY) |
+| **Pin Configuration** | GPIO1 + GND (2-wire) |
 | **Trigger Modes** | Rising, Falling, Both, Level |
-| **Display** | 128x128 TFT (0.85") |
+| **Display** | 128x128 TFT (0.85") Gemini UI |
 | **Connectivity** | WiFi 802.11 b/g/n |
 | **Power** | USB-C (5V) or Battery |
 
@@ -167,12 +174,13 @@ M5Stack AtomS3 Pinout:
 
 This project prioritizes **single-channel performance** over multi-channel complexity:
 
-**Why GPIO1 only?**
-- ⚡ **Maximum sampling rate** - 10MHz vs 5MHz multi-channel
-- 💾 **Larger buffer** - 16K vs 4K samples per channel
-- 🔋 **Lower jitter** - Dedicated processing power
-- 🎨 **Cleaner UI** - Focused, uncluttered interface
-- ⚡ **Better performance** - Optimized memory usage
+**Why GPIO1 ONLY design?**
+- ⚡ **Maximum sampling rate** - 10MHz vs 2-5MHz typical multi-channel
+- 💾 **4x Larger buffer** - 16,384 vs 4,096 samples per channel
+- 🔋 **Minimal jitter** - Single-channel dedicated processing
+- 🎨 **Cleaner UI** - Focused, uncluttered Gemini-style interface
+- ⚡ **Optimized performance** - All resources dedicated to one channel
+- 🔧 **Simpler hardware** - Just 2 wires (GPIO1 + GND)
 
 **Gemini UI Inspiration:**
 - **Dark gradients** for reduced eye strain
@@ -183,31 +191,54 @@ This project prioritizes **single-channel performance** over multi-channel compl
 
 ## 📦 Data Export Formats
 
-### JSON Format
+### JSON Format (GPIO1 Optimized)
 ```json
 {
-  "sample_count": 1024,
-  "sample_rate": 1000000,
-  "gpio_pin": 1,
-  "buffer_size": 16384,
-  "trigger_mode": 0,
+  "device": "M5Stack-AtomS3",
+  "analyzer_version": "1.0.0",
+  "channel_config": {
+    "pin": "GPIO1",
+    "channels": 1,
+    "pull_up": true
+  },
+  "capture_info": {
+    "sample_count": 1024,
+    "sample_rate": 10000000,
+    "buffer_size": 16384,
+    "trigger_mode": "rising_edge",
+    "capture_duration_us": 102
+  },
   "samples": [
     {
-      "timestamp": 1000,
-      "gpio1": true,
-      "state": "HIGH"
+      "timestamp_us": 1,
+      "gpio1_state": 1,
+      "logic_level": "HIGH"
+    },
+    {
+      "timestamp_us": 2,
+      "gpio1_state": 0,
+      "logic_level": "LOW"
     }
   ]
 }
 ```
 
-### CSV Format
+### CSV Format (GPIO1 Single Channel)
 ```csv
-Sample,Timestamp_us,GPIO1_Digital,GPIO1_State
-1,1000,1,HIGH
-2,2000,0,LOW
-3,3000,1,HIGH
+Sample,Timestamp_us,GPIO1_Digital,GPIO1_Logic,Duration_us
+1,0,1,HIGH,5
+2,5,0,LOW,12
+3,17,1,HIGH,8
+4,25,0,LOW,3
+5,28,1,HIGH,15
 ```
+
+**CSV Columns:**
+- `Sample`: Sequential sample number
+- `Timestamp_us`: Time in microseconds from capture start
+- `GPIO1_Digital`: Raw digital value (0 or 1)
+- `GPIO1_Logic`: Logic level interpretation (HIGH/LOW)
+- `Duration_us`: Time duration of this state
 
 ## 🔧 Development
 
@@ -224,9 +255,8 @@ esp32-logicanalyzer/
 └── README.md               # This file
 ```
 
-### Build Environments
-- `m5stack-atoms3` - M5Stack AtomS3 (recommended)
-- `esp32dev` - Generic ESP32 (compatibility mode)
+### Build Environment
+- `m5stack-atoms3` - M5Stack AtomS3 (ONLY supported platform)
 
 ### Key Libraries
 - **M5AtomS3** - Hardware abstraction
@@ -305,54 +335,6 @@ Contributions welcome! Please feel free to submit pull requests or open issues.
 
 **Made with ❤️ for the maker community** 🚀
 
-A logic analyzer implementation using the ESP32 microcontroller platform.
+---
 
-## Overview
-
-This project implements a logic analyzer using the ESP32's high-speed GPIO capabilities and internal memory to capture and analyze digital signals. The ESP32's dual-core architecture and built-in WiFi/Bluetooth connectivity make it an ideal platform for a portable, wireless logic analyzer.
-
-## Features (Planned)
-
-- Multi-channel digital signal capture
-- High-speed sampling using ESP32's hardware capabilities
-- Real-time signal analysis
-- Web-based interface for remote monitoring
-- WiFi connectivity for wireless operation
-- Data export capabilities
-- Trigger mechanisms for signal capture
-
-## Hardware Requirements
-
-- ESP32 development board (ESP32-DevKitC, ESP32-WROOM-32, or similar)
-- Input protection circuitry (optional but recommended)
-- Level shifters for non-3.3V signals (if needed)
-
-## Software Requirements
-
-- PlatformIO (recommended) or Arduino IDE
-- ESP32 board package
-
-## Getting Started
-
-1. Clone this repository
-2. Open the project in PlatformIO
-3. Build and upload to your ESP32 device
-
-## Project Structure
-
-```
-├── src/           # Main source code
-├── include/       # Header files
-├── lib/           # Local libraries
-├── test/          # Unit tests
-├── docs/          # Documentation
-└── platformio.ini # PlatformIO configuration
-```
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Contributing
-
-Contributions are welcome! Please read the contributing guidelines before submitting pull requests.
+**Made with ❤️ for the maker community** 🚀

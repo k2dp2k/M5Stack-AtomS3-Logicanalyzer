@@ -4,29 +4,18 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## Project Overview
 
-This is an ESP32-based logic analyzer that captures digital signals and provides a web-based interface for control and data visualization. The system uses the ESP32's high-speed GPIO capabilities with WiFi connectivity for wireless operation.
+This is a specialized M5Stack AtomS3 logic analyzer that captures digital signals on GPIO1 only and provides a web-based interface for control and data visualization. The system uses the ESP32-S3's high-speed GPIO capabilities with WiFi connectivity for wireless operation.
 
-The project supports two hardware configurations:
-- **Standard ESP32**: Original development board with 8 channels
-- **M5Stack AtomS3**: Compact device with 0.85" display and 6 channels
+This implementation is specifically designed for:
+- **M5Stack AtomS3 ONLY**: Compact device with 0.85" display optimized for single-channel analysis
+- **GPIO1 exclusive**: Single-channel design for maximum performance (up to 10MHz sampling)
+- **Gemini-style UI**: Modern dark interface with glass-morphism effects
 
 ## Development Commands
 
 ### Build and Upload
 
-**For Standard ESP32:**
-```bash
-# Build the project
-pio run --environment esp32dev
-
-# Upload to ESP32 device
-pio run --target upload --environment esp32dev
-
-# Upload and monitor
-pio run --target upload --environment esp32dev && pio device monitor
-```
-
-**For M5Stack AtomS3:**
+**For M5Stack AtomS3 (ONLY supported platform):**
 ```bash
 # Build for AtomS3
 pio run --environment m5stack-atoms3
@@ -70,11 +59,12 @@ pio lib list
 ### Main Components
 
 **LogicAnalyzer Class** (`src/logic_analyzer.cpp`, `include/logic_analyzer.h`)
-- Handles all signal capture logic using ESP32 GPIO
-- Implements circular buffer for sample storage (4096 samples)
-- Supports up to 8 channels with configurable sample rates (1kHz - 10MHz)
+- Handles all signal capture logic using ESP32-S3 GPIO1 exclusively
+- Implements circular buffer for sample storage (16,384 samples for single channel)
+- Single GPIO1 channel with configurable sample rates (1kHz - 10MHz)
 - Provides multiple trigger modes: rising/falling edge, both edges, high/low level
 - Uses microsecond-precision timestamps for accurate timing analysis
+- Optimized for maximum single-channel performance
 
 **Web Interface** (`src/main.cpp`)
 - Embedded HTTP server using ESPAsyncWebServer library
@@ -83,11 +73,11 @@ pio lib list
 - Single-page application served directly from ESP32
 
 **Signal Processing Pipeline**
-1. **Initialization**: Configure GPIO pins as inputs for specified channels
-2. **Capture**: High-speed polling loop reads all channels simultaneously
-3. **Triggering**: Optional trigger conditions arm/disarm capture based on signal patterns  
-4. **Buffering**: Circular buffer stores timestamp + 8-bit channel data
-5. **Export**: JSON serialization for web interface consumption
+1. **Initialization**: Configure GPIO1 as input with pull-up resistor
+2. **Capture**: High-speed polling loop reads GPIO1 state at precise intervals
+3. **Triggering**: Optional trigger conditions arm/disarm capture based on GPIO1 signal patterns  
+4. **Buffering**: Circular buffer stores timestamp + GPIO1 state data
+5. **Export**: JSON serialization for web interface consumption with GPIO1-specific formatting
 
 ### Key Design Patterns
 
@@ -101,20 +91,16 @@ pio lib list
 
 ### Hardware Setup
 
-**Standard ESP32:**
-- Channel pins: GPIO 2, 4, 5, 18, 19, 21, 22, 23 (channels 0-7)
-- Input voltage: 3.3V logic levels
-- Maximum sample rate: 10MHz
-- 8 channels available
-
-**M5Stack AtomS3:**
-- Channel pins: GPIO 1, 2, 5, 6, 7, 8 (channels 0-5)
-- Input voltage: 3.3V logic levels
-- Maximum sample rate: 5MHz (reduced due to display overhead)
-- 6 channels available
-- 0.85" TFT display (128x128 pixels)
+**M5Stack AtomS3 (ONLY supported platform):**
+- **Signal input pin: GPIO1 ONLY** - optimized for maximum performance
+- Input voltage: 3.3V logic levels (0V = LOW, 3.3V = HIGH)
+- Maximum sample rate: 10MHz (single-channel optimization)
+- Buffer size: 16,384 samples (4x larger than multi-channel designs)
+- 0.85" TFT display (128x128 pixels) with Gemini-style UI
 - Physical button for start/stop capture
 - Compact form factor (24×24×10mm)
+- USB-C for power and programming
+- Internal pull-up resistor on GPIO1
 
 ### WiFi Configuration
 Update credentials in `src/main.cpp`:
@@ -129,10 +115,11 @@ const char* password = "YOUR_WIFI_PASSWORD";
 - Higher rates may require shorter capture windows due to buffer size limits
 - Consider ESP32 processing overhead when setting rates above 5MHz
 
-### Channel Configuration
-- Modify `MAX_CHANNELS` in header to reduce memory usage if fewer channels needed
-- Update pin definitions (`CHANNEL_X_PIN`) for custom hardware layouts
-- Active channel count configurable at runtime via web interface
+### GPIO1 Configuration
+- Fixed to GPIO1 only - no multi-channel support in this version
+- Internal pull-up resistor automatically enabled
+- High-impedance input suitable for most 3.3V logic signals
+- Optimized pin selection for minimum jitter on AtomS3 hardware
 
 ## Important Implementation Details
 
@@ -147,11 +134,12 @@ const char* password = "YOUR_WIFI_PASSWORD";
 ## AtomS3 Display Usage
 
 **Display Features:**
-- Real-time status display (READY/CAPTURING)
-- Buffer usage indicator
-- Current sample rate and channel count
-- Live channel state visualization (colored indicators)
-- Trigger status and configuration
+- Real-time status display (READY/CAPTURING) with Gemini-style UI
+- Buffer usage indicator with purple progress bar
+- Current sample rate (up to 10MHz)
+- Live GPIO1 state visualization (HIGH/LOW with color coding)
+- WiFi connection status with animated indicators
+- Modern dark theme with glass-morphism effects
 
 **Physical Controls:**
 - Button A: Toggle capture start/stop
