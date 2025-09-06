@@ -262,23 +262,61 @@ void setupWebServer() {
         request->send(200, "application/json", response);
     });
     
-    // Set UART buffer size
+    // Set UART buffer size with auto Flash/RAM selection
     server.on("/api/uart/buffersize", HTTP_POST, [](AsyncWebServerRequest *request){
         size_t newSize = 10000;  // Default
         if (request->hasParam("size", true)) {
             newSize = request->getParam("size", true)->value().toInt();
         }
         
-        // Limit buffer size to prevent memory issues (max 50K entries)
+        // Limit buffer size to prevent memory issues
         if (newSize < 100) newSize = 100;
-        if (newSize > 50000) newSize = 50000;
+        if (newSize > 100000) newSize = 100000;  // Allow up to 100K with Flash
+        
+        // Auto-select storage type based on buffer size
+        bool shouldUseFlash = (newSize > 5000);
+        if (shouldUseFlash != analyzer.isFlashStorageEnabled()) {
+            analyzer.enableFlashStorage(shouldUseFlash);
+        }
         
         analyzer.setUartBufferSize(newSize);
         
         JsonDocument doc;
         doc["status"] = "updated";
         doc["new_size"] = newSize;
-        doc["message"] = "UART buffer size updated to " + String(newSize) + " entries";
+        doc["storage_type"] = analyzer.isFlashStorageEnabled() ? "Flash" : "RAM";
+        doc["auto_switched"] = (shouldUseFlash != analyzer.isFlashStorageEnabled()) ? false : true;
+        doc["message"] = "UART buffer size updated to " + String(newSize) + " entries (" + 
+                        String(analyzer.isFlashStorageEnabled() ? "Flash" : "RAM") + " storage)";
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Flash Storage control endpoints
+    server.on("/api/uart/storage", HTTP_GET, [](AsyncWebServerRequest *request){
+        JsonDocument doc;
+        doc["storage_type"] = analyzer.isFlashStorageEnabled() ? "Flash" : "RAM";
+        doc["flash_enabled"] = analyzer.isFlashStorageEnabled();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    server.on("/api/uart/storage/flash", HTTP_POST, [](AsyncWebServerRequest *request){
+        bool enable = true;
+        if (request->hasParam("enable", true)) {
+            enable = (request->getParam("enable", true)->value() == "true");
+        }
+        
+        analyzer.enableFlashStorage(enable);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["storage_type"] = analyzer.isFlashStorageEnabled() ? "Flash" : "RAM";
+        doc["message"] = "Storage switched to " + String(analyzer.isFlashStorageEnabled() ? "Flash" : "RAM");
         
         String response;
         serializeJson(doc, response);
@@ -485,8 +523,8 @@ String getIndexHTML() {
            "<div class='info-item'><strong>Pins:</strong> <span id='uart-pins'>RX:7 TX:disabled</span></div>" 
            "<div class='info-item'><strong>Bytes:</strong> <span id='uart-bytes'>RX:0 TX:0</span></div>" 
            "<div class='info-item'><strong>Buffer:</strong> <span id='uart-buffer-info'>0/10000 (0KB)</span></div>" 
-           "<div class='info-item'><strong>Memory:</strong> <span id='uart-memory-usage'>0KB used</span></div>" 
-           "</div>" 
+           "<div class='info-item'><strong>Storage:</strong> <span id='uart-storage-type'>RAM</span> <button class='gemini-btn secondary' onclick='toggleFlashStorage()' id='flash-toggle' style='margin-left:8px;padding:4px 8px;font-size:11px;'>💾 Flash</button></div>" 
+           "</div>"
            "<div id='uart-logs' class='gemini-mono'>UART monitoring disabled...</div>" 
            "</div>" 
            "<div class='gemini-card'>" 
@@ -536,9 +574,9 @@ String getIndexHTML() {
            "function enableUartMonitoring(){fetch('/api/uart/enable',{method:'POST'}).then(()=>loadUartLogs());}" 
            "function disableUartMonitoring(){fetch('/api/uart/disable',{method:'POST'}).then(()=>loadUartLogs());}" 
            "function clearUartLogs(){fetch('/api/uart/clear',{method:'POST'}).then(()=>loadUartLogs());}" 
-           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits;document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;document.getElementById('uart-buffer-info').textContent=d.count+'/'+d.max_entries+' ('+(d.memory_usage/1024).toFixed(1)+'KB)';document.getElementById('uart-memory-usage').textContent=(d.memory_usage/1024).toFixed(1)+'KB used';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';}).catch(e=>console.error('UART logs error:',e));}" 
+           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits;document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;document.getElementById('uart-buffer-info').textContent=d.count+'/'+d.max_entries+' ('+(d.memory_usage/1024).toFixed(1)+'KB)';document.getElementById('uart-memory-usage').textContent=(d.memory_usage/1024).toFixed(1)+'KB used';document.getElementById('uart-storage-type').textContent=d.storage_type||'RAM';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';updateStorageDisplay();}).catch(e=>console.error('UART logs error:',e));}"
            "function compactUartLogs(){fetch('/api/uart/compact',{method:'POST'}).then(()=>loadUartLogs());}"
-           "function downloadUartLogs(){window.open('/download/uart','_blank');}" 
+           "function downloadUartLogs(){window.open('/download/uart','_blank');}"
            "function toggleUartConfig(){const config=document.getElementById('uart-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadUartConfig();}}" 
            "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;}).catch(e=>console.error('UART config load error:',e));}"
            "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}" 
@@ -558,6 +596,23 @@ String getIndexHTML() {
            "document.getElementById('buffer-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' entries \u2248 '+timeStr+' @ '+baudrate+' baud (\u2248'+ramUsage+'KB RAM)';" 
            "}" 
            "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;updateBufferTimeEstimates();}).catch(e=>console.error('UART config load error:',e));}" 
+           "function toggleFlashStorage(){" 
+           "fetch('/api/uart/storage').then(r=>r.json()).then(d=>{" 
+           "const newState = !d.flash_enabled;" 
+           "const formData=new FormData();formData.append('enable',newState.toString());" 
+           "fetch('/api/uart/storage/flash',{method:'POST',body:formData}).then(r=>r.json()).then(result=>{" 
+           "updateStorageDisplay();" 
+           "loadUartLogs();" 
+           "alert('Storage switched to: '+result.storage_type);" 
+           "}).catch(e=>console.error('Flash toggle error:',e));" 
+           "}).catch(e=>console.error('Storage status error:',e));}" 
+           "function updateStorageDisplay(){" 
+           "fetch('/api/uart/storage').then(r=>r.json()).then(d=>{" 
+           "document.getElementById('uart-storage-type').textContent=d.storage_type;" 
+           "const flashBtn=document.getElementById('flash-toggle');" 
+           "flashBtn.textContent=d.flash_enabled?'💽 RAM':'💾 Flash';" 
+           "flashBtn.style.background=d.flash_enabled?'linear-gradient(135deg,#4ecdc4 0%,#44a08d 100%)':'linear-gradient(135deg,#a8a8a8 0%,#7f7f7f 100%)';" 
+           "}).catch(e=>console.error('Storage display error:',e));}" 
            "function updateAll(){"
            "fetch('/api/status').then(r=>r.json()).then(d=>{" 
            "const indicator=d.capturing?'<span class=\"gemini-indicator capturing\"></span>':'<span class=\"gemini-indicator ready\"></span>';" 

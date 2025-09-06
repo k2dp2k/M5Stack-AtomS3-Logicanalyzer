@@ -26,6 +26,10 @@ LogicAnalyzer::LogicAnalyzer() {
     preferences = nullptr;
     maxUartEntries = MAX_UART_ENTRIES;  // Initialize with default
     
+    // Flash Storage initialization
+    useFlashStorage = false;
+    uartLogFileName = "/uart_logs.txt";
+    
     sampleInterval = 1000000 / sampleRate; // microseconds
 }
 
@@ -37,6 +41,10 @@ void LogicAnalyzer::begin() {
     Serial.println("Initializing GPIO1 Logic Analyzer...");
     initializeGPIO1();
     clearBuffer();
+    
+    // Initialize LittleFS for potential flash storage
+    initFlashStorage();
+    
     Serial.printf("GPIO1 Logic Analyzer initialized at %d Hz with %d sample buffer\n", sampleRate, BUFFER_SIZE);
 }
 
@@ -720,11 +728,25 @@ void LogicAnalyzer::addUartEntry(const String& data, bool isRx) {
     String direction = isRx ? "RX" : "TX";
     String uartEntry = String(timestamp) + ": [UART " + direction + "] " + data;
     
-    uartLogBuffer.push_back(uartEntry);
-    
-    // Use smart buffer management instead of simple deletion
-    if (uartLogBuffer.size() > maxUartEntries) {
-        compactUartLogs();  // Remove oldest 20% when full
+    if (useFlashStorage) {
+        // Flash-based storage
+        File logFile = LittleFS.open(uartLogFileName, "a");
+        if (logFile) {
+            logFile.println(uartEntry);
+            logFile.close();
+        } else {
+            // Fallback to RAM if Flash write fails
+            uartLogBuffer.push_back(uartEntry);
+            Serial.println("Flash write failed, fallback to RAM");
+        }
+    } else {
+        // RAM-based storage
+        uartLogBuffer.push_back(uartEntry);
+        
+        // Use smart buffer management instead of simple deletion
+        if (uartLogBuffer.size() > maxUartEntries) {
+            compactUartLogs();  // Remove oldest 20% when full
+        }
     }
     
     // Also add to regular serial log for debugging
@@ -735,18 +757,42 @@ String LogicAnalyzer::getUartLogsAsJSON() {
     JsonDocument doc;
     JsonArray logs = doc["uart_logs"].to<JsonArray>();
     
-    for (const auto& uartEntry : uartLogBuffer) {
-        logs.add(uartEntry);
+    size_t logCount = 0;
+    size_t memoryUsage = 0;
+    
+    if (useFlashStorage && LittleFS.exists(uartLogFileName)) {
+        // Read from Flash storage
+        File logFile = LittleFS.open(uartLogFileName, "r");
+        if (logFile) {
+            while (logFile.available()) {
+                String line = logFile.readStringUntil('\n');
+                if (line.length() > 0) {
+                    logs.add(line);
+                    logCount++;
+                    memoryUsage += line.length();
+                }
+            }
+            logFile.close();
+        }
+    } else {
+        // Read from RAM storage
+        for (const auto& uartEntry : uartLogBuffer) {
+            logs.add(uartEntry);
+        }
+        logCount = uartLogBuffer.size();
+        memoryUsage = getUartMemoryUsage();
     }
     
-    doc["count"] = uartLogBuffer.size();
+    doc["count"] = logCount;
     doc["max_entries"] = maxUartEntries;
     doc["monitoring_enabled"] = uartMonitoringEnabled;
     doc["last_activity"] = lastUartActivity;
     doc["bytes_received"] = uartBytesReceived;
     doc["bytes_sent"] = uartBytesSent;
-    doc["memory_usage"] = getUartMemoryUsage();
-    doc["buffer_full"] = isUartBufferFull();
+    doc["memory_usage"] = memoryUsage;
+    doc["buffer_full"] = (logCount >= maxUartEntries);
+    doc["storage_type"] = useFlashStorage ? "Flash" : "RAM";
+    doc["flash_file"] = useFlashStorage ? uartLogFileName : "";
     
     // Embed config as JSON object, not string
     JsonDocument configDoc;
@@ -787,13 +833,36 @@ String LogicAnalyzer::getUartLogsAsPlainText() {
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Monitoring Enabled: " + String(uartMonitoringEnabled ? "YES" : "NO") + "\n";
     result += "# Last Activity: " + String(lastUartActivity) + "ms\n";
-    result += "# Total entries: " + String(uartLogBuffer.size()) + "\n\n";
+    result += "# Storage Type: " + String(useFlashStorage ? "Flash" : "RAM") + "\n";
     
-    for (const auto& uartEntry : uartLogBuffer) {
-        result += uartEntry + "\n";
+    size_t logCount = 0;
+    
+    if (useFlashStorage && LittleFS.exists(uartLogFileName)) {
+        // Read from Flash storage
+        result += "# Flash File: " + uartLogFileName + "\n";
+        File logFile = LittleFS.open(uartLogFileName, "r");
+        if (logFile) {
+            while (logFile.available()) {
+                String line = logFile.readStringUntil('\n');
+                if (line.length() > 0) {
+                    result += line + "\n";
+                    logCount++;
+                }
+            }
+            logFile.close();
+        }
+    } else {
+        // Read from RAM storage
+        logCount = uartLogBuffer.size();
+        for (const auto& uartEntry : uartLogBuffer) {
+            result += uartEntry + "\n";
+        }
     }
     
-    if (uartLogBuffer.empty()) {
+    result = result.substring(0, result.lastIndexOf('\n'));
+    result += "\n# Total entries: " + String(logCount) + "\n\n";
+    
+    if (logCount == 0) {
         result += "No UART communication logged.\n";
         if (!uartMonitoringEnabled) {
             result += "Note: UART monitoring is currently disabled.\n";
@@ -804,7 +873,11 @@ String LogicAnalyzer::getUartLogsAsPlainText() {
 }
 
 void LogicAnalyzer::clearUartLogs() {
-    uartLogBuffer.clear();
+    if (useFlashStorage) {
+        clearFlashUartLogs();  // Clear Flash logs
+    } else {
+        uartLogBuffer.clear();  // Clear RAM logs
+    }
     addLogEntry("UART logs cleared");
 }
 
@@ -912,6 +985,116 @@ size_t LogicAnalyzer::getMaxUartEntries() const {
 
 float LogicAnalyzer::getUartBufferUsagePercent() const {
     return (uartLogBuffer.size() * 100.0) / maxUartEntries;
+}
+
+// Flash Storage Methods
+void LogicAnalyzer::enableFlashStorage(bool enable) {
+    if (enable && !LittleFS.begin()) {
+        Serial.println("LittleFS Mount Failed! Attempting to format...");
+        addLogEntry("Flash storage mount failed - formatting...");
+        
+        // Try to format LittleFS partition
+        if (!LittleFS.begin(true)) {  // true = format if mount fails
+            Serial.println("LittleFS format failed! Using RAM storage instead.");
+            addLogEntry("Flash storage format failed - using RAM");
+            useFlashStorage = false;
+            return;
+        } else {
+            Serial.println("LittleFS formatted and mounted successfully!");
+            addLogEntry("Flash storage formatted and ready");
+        }
+    }
+    
+    if (enable != useFlashStorage) {
+        bool wasEnabled = useFlashStorage;
+        useFlashStorage = enable;
+        
+        if (enable) {
+            // Switching to Flash: generate unique filename with timestamp
+            uartLogFileName = "/uart_logs_" + String(millis()) + ".txt";
+            addLogEntry("Switched to Flash storage: " + uartLogFileName);
+            Serial.println("UART logging switched to Flash storage: " + uartLogFileName);
+            
+            // Copy existing RAM logs to Flash if any
+            if (!uartLogBuffer.empty()) {
+                File logFile = LittleFS.open(uartLogFileName, "w");
+                if (logFile) {
+                    for (const auto& entry : uartLogBuffer) {
+                        logFile.println(entry);
+                    }
+                    logFile.close();
+                    addLogEntry("Migrated " + String(uartLogBuffer.size()) + " entries to Flash");
+                    uartLogBuffer.clear();  // Clear RAM buffer
+                }
+            }
+        } else {
+            // Switching to RAM: load Flash logs to RAM if file exists
+            if (LittleFS.exists(uartLogFileName)) {
+                File logFile = LittleFS.open(uartLogFileName, "r");
+                if (logFile) {
+                    uartLogBuffer.clear();
+                    while (logFile.available() && uartLogBuffer.size() < maxUartEntries) {
+                        String line = logFile.readStringUntil('\n');
+                        if (line.length() > 0) {
+                            uartLogBuffer.push_back(line);
+                        }
+                    }
+                    logFile.close();
+                    addLogEntry("Migrated " + String(uartLogBuffer.size()) + " entries from Flash to RAM");
+                }
+            }
+            addLogEntry("Switched to RAM storage");
+            Serial.println("UART logging switched to RAM storage");
+        }
+    }
+}
+
+bool LogicAnalyzer::isFlashStorageEnabled() const {
+    return useFlashStorage;
+}
+
+void LogicAnalyzer::initFlashStorage() {
+    if (!LittleFS.begin()) {
+        Serial.println("LittleFS Mount Failed! Attempting to format...");
+        addLogEntry("Flash storage mount failed - formatting...");
+        
+        // Try to format LittleFS partition
+        if (!LittleFS.begin(true)) {  // true = format if mount fails
+            Serial.println("LittleFS format failed! Flash storage not available.");
+            addLogEntry("Flash storage initialization failed - format error");
+            useFlashStorage = false;
+            return;
+        } else {
+            Serial.println("LittleFS formatted and mounted successfully!");
+            addLogEntry("Flash storage formatted and initialized");
+        }
+    } else {
+        Serial.println("LittleFS initialized successfully");
+        addLogEntry("Flash storage available (LittleFS)");
+    }
+    
+    // List total and used flash space
+    size_t totalBytes = LittleFS.totalBytes();
+    size_t usedBytes = LittleFS.usedBytes();
+    Serial.printf("Flash Storage: %d KB total, %d KB used, %d KB free\n", 
+                 totalBytes/1024, usedBytes/1024, (totalBytes-usedBytes)/1024);
+    
+    String flashInfo = "Flash: " + String(totalBytes/1024) + "KB total, " + 
+                      String(usedBytes/1024) + "KB used, " + 
+                      String((totalBytes-usedBytes)/1024) + "KB free";
+    addLogEntry(flashInfo);
+}
+
+void LogicAnalyzer::clearFlashUartLogs() {
+    if (useFlashStorage && LittleFS.exists(uartLogFileName)) {
+        if (LittleFS.remove(uartLogFileName)) {
+            addLogEntry("Flash UART logs cleared: " + uartLogFileName);
+            Serial.println("Flash UART logs cleared");
+        } else {
+            addLogEntry("Failed to clear Flash UART logs");
+            Serial.println("Failed to clear Flash UART logs");
+        }
+    }
 }
 
 #endif

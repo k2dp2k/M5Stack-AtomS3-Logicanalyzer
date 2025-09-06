@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
 [![Flash Storage](https://img.shields.io/badge/Flash%20Storage-100K%20Entries-blue.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
 [![UART Monitor](https://img.shields.io/badge/UART-Professional-yellow.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
+
 [![PlatformIO CI](https://img.shields.io/badge/PlatformIO-Ready-orange.svg)](https://platformio.org/)
 [![ESP32-S3](https://img.shields.io/badge/ESP32--S3-Compatible-blue.svg)](https://www.espressif.com/en/products/socs/esp32-s3)
 [![M5Stack](https://img.shields.io/badge/M5Stack-AtomS3-red.svg)](https://docs.m5stack.com/en/core/AtomS3)
@@ -35,6 +36,14 @@ A **professional-grade dual-mode analyzer** built exclusively for the M5Stack At
 - **Real-time triggering** with multiple modes (rising, falling, both, level)
 - **Wireless operation** via WiFi connectivity
 
+### 🌐 **Modern Web Interface**
+- **Responsive design** with touch-friendly controls
+- **Real-time status updates** and live data visualization
+- **JSON/CSV export** for analysis in external tools
+- **WiFi configuration** with AP fallback mode
+- **Serial log viewing** for debugging
+- **UART monitoring** for communication analysis
+
 ### 💾 **Professional Flash Storage System**
 - **LittleFS Integration** - Automatic formatting and management
 - **100,000+ UART Entries** - Massive capacity for long-term monitoring
@@ -43,19 +52,11 @@ A **professional-grade dual-mode analyzer** built exclusively for the M5Stack At
 - **Real-time Migration** - Seamless switching between storage types
 - **Interactive Time Estimates** - Shows buffer duration at current baud rates
 
-### 🌐 **Modern Web Interface**
-- **Responsive design** with touch-friendly controls
-- **Real-time status updates** and live data visualization
-- **JSON/CSV export** for analysis in external tools
-- **WiFi configuration** with AP fallback mode
-- **Serial log viewing** for debugging
-- **Advanced UART monitoring** with Flash storage controls
-
 ### 📱 **Specialized AtomS3 Hardware**
 - **M5Stack AtomS3 ONLY** - (24×24×10mm) ultra-compact form factor
 - **ESP32-S3** - 240MHz dual-core with 320KB RAM + 8MB Flash
 - **GPIO1 input** - single-channel optimized for maximum speed
-- **0.85\" TFT display** (128x128 pixels) with Gemini-style UI
+- **0.85" TFT display** (128x128 pixels) with Gemini-style UI
 - **Physical button** for start/stop capture
 - **USB-C connectivity** for programming and power
 
@@ -114,20 +115,17 @@ The AtomS3 Logic Analyzer features an enterprise-grade UART monitoring system wi
 
 **How it works:**
 1. Configure UART parameters via web interface
-2. Connect external device TX → AtomS3 RX (GPIO7)
-3. Connect external device RX → AtomS3 TX (disabled by default)
+2. Connect external device TX → AtomS3 RX (GPIO43)
+3. Connect external device RX → AtomS3 TX (GPIO44) 
 4. Share common ground between devices
 5. Start monitoring to capture all communication
 6. View real-time data with statistics and timestamps
-7. Switch between RAM/Flash storage as needed
-8. Export comprehensive logs with metadata
 
 **Professional Use Cases:**
 - **Protocol Analysis**: Debug I2C, SPI, Modbus over UART
-- **Long-term Monitoring**: 3.5+ hour sessions with Flash storage
 - **Device Communication**: Monitor Arduino, ESP32, STM32 serial communication
 - **Sensor Networks**: Analyze sensor data streams and responses
-- **Industrial Systems**: Monitor PLC and HMI communication with persistence
+- **Industrial Systems**: Monitor PLC and HMI communication
 - **IoT Development**: Debug wireless module AT commands
 - **Reverse Engineering**: Document unknown communication protocols
 
@@ -139,7 +137,7 @@ M5Stack AtomS3 - Logic + UART Communication Analyzer:
 │ 📺 [0.85" Display] 🔘 [Button]          │
 │                                        │
 │ GPIO1  ◀── 🔌 LOGIC SIGNAL INPUT     │  ← Digital logic analysis (10MHz)
-│ GPIO7  ◀── 📡 UART RX (configurable)  │  ← External device TX connection
+│ GPIO43 ◀── 📡 UART RX (configurable)  │  ← External device TX connection
 │ GPIO44  ─▶ 📡 UART TX (configurable)  │  ← External device RX connection
 │ GND    ◀── ⚡ COMMON GROUND           │  ← Shared ground for all signals
 │                                        │
@@ -148,7 +146,7 @@ M5Stack AtomS3 - Logic + UART Communication Analyzer:
 
 🔴 DUAL FUNCTIONALITY:
 • GPIO1: High-speed logic analysis (single-channel, up to 10MHz)
-• GPIO7: Configurable external UART monitoring with Flash storage
+• GPIO43/44: Configurable external UART monitoring
 • All pins configurable via web interface
 ```
 
@@ -195,9 +193,8 @@ M5Stack AtomS3 - Logic + UART Communication Analyzer:
 - **GPIO1 State** - Live signal level display (HIGH/LOW with colors)
 - **UART Status** - Active/Disabled monitoring state
 - **UART Configuration** - Current settings display (e.g., "115200 8N1")
-- **UART Pins** - Active RX/TX GPIO pins (e.g., "RX:7 TX:disabled")
+- **UART Pins** - Active RX/TX GPIO pins (e.g., "RX:43 TX:44")
 - **UART Statistics** - Real-time byte counters (RX/TX separately)
-- **Storage Type** - Current storage mode (RAM/Flash) with toggle button
 
 ### 📱 Device Display
 
@@ -213,40 +210,6 @@ M5Stack AtomS3 - Logic + UART Communication Analyzer:
 **Physical Controls:**
 - **Button press** - Start/stop capture toggle
 - **Status LEDs** - Visual feedback for operation state
-
-## 🚀 **Flash Storage Performance**
-
-### 📊 **Storage Capacity Comparison**
-
-| Buffer Size | Storage Type | Duration @ 115200 | Memory Usage | Use Case |
-|-------------|--------------|-------------------|--------------|----------|
-| 1,000 entries | **RAM** | ~2 minutes | ~50KB | Quick tests, debugging |
-| 5,000 entries | **RAM** | ~10 minutes | ~250KB | Development sessions |
-| 10,000 entries | **Flash** | ~21 minutes | ~500KB | Extended monitoring |
-| 25,000 entries | **Flash** | ~52 minutes | ~1.25MB | Professional analysis |
-| 50,000 entries | **Flash** | **~1.7 hours** | ~2.5MB | Long-term monitoring |
-| 100,000 entries | **Flash** | **~3.5 hours** | ~5MB | Enterprise logging |
-
-### ⚡ **Performance Characteristics**
-
-```
-Operation          | RAM      | Flash (LittleFS)
--------------------|----------|------------------
-Write Speed        | ~1μs     | ~1ms
-Read Speed         | ~1μs     | ~100μs
-Max Capacity       | ~5K      | 100K+ entries
-Persistence        | ❌       | ✅ Survives reboot
-Wear Leveling      | N/A      | ✅ Automatic
-Data Migration     | N/A      | ✅ Seamless
-```
-
-### 🎯 **Intelligent Storage Selection**
-
-- **< 5,000 entries**: Automatic **RAM** selection for speed
-- **> 5,000 entries**: Automatic **Flash** selection for capacity
-- **Manual override**: One-click toggle between storage types
-- **Real-time migration**: Seamless data transfer between RAM/Flash
-- **Interactive estimates**: Live calculation of buffer duration
 
 ## 🛠️ Configuration
 
@@ -264,13 +227,6 @@ Data Migration     | N/A      | ✅ Seamless
 #define MAX_CHANNELS 1     // Single channel optimization
 ```
 
-### Flash Storage Configuration
-```cpp
-#define MAX_UART_ENTRIES 100000   // Maximum Flash entries
-#define UART_MSG_MAX_LENGTH 500   // Max message size
-// Automatic selection: <5K = RAM, >5K = Flash
-```
-
 ### WiFi Settings
 - **AP SSID Format:** `AtomS3-Logic-XXXXXX` (XXXXXX = MAC suffix)
 - **AP Password:** `logicanalyzer` (default)
@@ -281,29 +237,22 @@ Data Migration     | N/A      | ✅ Seamless
 
 | Specification | Value |
 |---------------|-------|
-| **Hardware** | **Specification** |
 | **MCU** | ESP32-S3 (240MHz dual-core) |
-| **RAM Usage** | ~179KB (54.6% of 320KB) |
-| **Flash Usage** | ~1.04MB (33.2% of 3MB) |
+| **RAM Usage** | ~178KB (54% of 320KB) |
+| **Flash Usage** | ~950KB (30% of 3MB) |
 | **Sample Buffer** | 16,384 samples |
 | **Max Sample Rate** | 10MHz (GPIO1 optimized) |
 | **Timing Precision** | 1μs resolution |
-| **Flash Storage System** | **Specification** |
-| **LittleFS Partition** | ~1.4MB available for logs |
-| **Max UART Entries** | 100,000+ entries |
-| **Storage Types** | RAM (fast) + Flash (persistent) |
-| **Auto-Selection** | <5K entries=RAM, >5K=Flash |
 | **Logic Analyzer** | **Specification** |
 | **Input Channels** | 1 (GPIO1 ONLY) |
 | **Pin Configuration** | GPIO1 + GND (2-wire) |
 | **Trigger Modes** | Rising, Falling, Both, Level |
 | **UART Monitor** | **Specification** |
 | **UART Channels** | External RX/TX (configurable pins) |
-| **Default UART Pins** | RX: GPIO7, TX: disabled (-1) |
+| **Default UART Pins** | RX: GPIO43, TX: GPIO44 |
 | **Supported Baud Rates** | 9600 - 921600 baud |
 | **UART Parameters** | 7/8 data bits, None/Odd/Even parity, 1/2 stop bits |
-| **Buffer Capacity** | 1K - 100K entries (configurable) |
-| **Session Duration** | Up to 3.5+ hours @ 115200 baud |
+| **UART Buffer** | 200 entries circular buffer |
 | **General** | **Specification** |
 | **Display** | 128x128 TFT (0.85") Gemini UI |
 | **Connectivity** | WiFi 802.11 b/g/n |
@@ -321,13 +270,6 @@ This project prioritizes **single-channel performance** over multi-channel compl
 - ⚡ **Optimized performance** - All resources dedicated to one channel
 - 🔧 **Simpler hardware** - Just 2 wires (GPIO1 + GND)
 
-**Flash Storage Benefits:**
-- 💾 **Massive capacity** - 20x more data than RAM-only systems
-- 🔒 **Data persistence** - Survives power cycles and crashes
-- ⚡ **Smart selection** - Automatic RAM/Flash switching
-- 📊 **Professional monitoring** - Hours-long analysis sessions
-- 🔄 **Seamless migration** - Real-time data transfer between storage types
-
 **Gemini UI Inspiration:**
 - **Dark gradients** for reduced eye strain
 - **Purple accents** for modern, professional look
@@ -337,11 +279,11 @@ This project prioritizes **single-channel performance** over multi-channel compl
 
 ## 📦 Data Export Formats
 
-### JSON Format (Enhanced with Flash Storage)
+### JSON Format (GPIO1 Logic + UART Data)
 ```json
 {
   "device": "M5Stack-AtomS3",
-  "analyzer_version": "2.1.0",
+  "analyzer_version": "2.0.0",
   "logic_analyzer": {
     "channel_config": {
       "pin": "GPIO1",
@@ -360,6 +302,11 @@ This project prioritizes **single-channel performance** over multi-channel compl
         "timestamp_us": 1,
         "gpio1_state": 1,
         "logic_level": "HIGH"
+      },
+      {
+        "timestamp_us": 2,
+        "gpio1_state": 0,
+        "logic_level": "LOW"
       }
     ]
   },
@@ -369,21 +316,14 @@ This project prioritizes **single-channel performance** over multi-channel compl
       "data_bits": 8,
       "parity": "None",
       "stop_bits": 1,
-      "rx_pin": 7,
-      "tx_pin": -1
-    },
-    "storage_info": {
-      "storage_type": "Flash",
-      "flash_file": "/uart_logs_12345.txt",
-      "buffer_capacity": 100000,
-      "estimated_duration": "3.5 hours"
+      "rx_pin": 43,
+      "tx_pin": 44
     },
     "statistics": {
       "bytes_received": 2048,
       "bytes_sent": 512,
       "monitoring_enabled": true,
-      "last_activity": 1642534567890,
-      "memory_usage": 5242880
+      "last_activity": 1642534567890
     },
     "uart_logs": [
       "1642534567890: [UART RX] Hello World",
@@ -403,20 +343,26 @@ Sample,Timestamp_us,GPIO1_Digital,GPIO1_Logic,Duration_us
 5,28,1,HIGH,15
 ```
 
+**CSV Columns:**
+- `Sample`: Sequential sample number
+- `Timestamp_us`: Time in microseconds from capture start
+- `GPIO1_Digital`: Raw digital value (0 or 1)
+- `GPIO1_Logic`: Logic level interpretation (HIGH/LOW)
+- `Duration_us`: Time duration of this state
+
 ## 🔧 Development
 
 ### Project Structure
 ```
 esp32-logicanalyzer/
 ├── include/
-│   └── logic_analyzer.h      # Core analyzer class with Flash support
+│   └── logic_analyzer.h      # Core analyzer class
 ├── src/
-│   ├── main.cpp              # Web server & WiFi with Flash API
-│   └── logic_analyzer.cpp    # Signal capture + Flash storage logic
-├── platformio.ini            # Build configuration with LittleFS
-├── WARP.md                   # AI assistant guidance (updated)
-├── FLASH_STORAGE_NOTES.md    # Flash implementation documentation
-└── README.md                 # This file (updated)
+│   ├── main.cpp              # Web server & WiFi
+│   └── logic_analyzer.cpp    # Signal capture logic
+├── platformio.ini          # Build configuration
+├── WARP.md                 # AI assistant guidance
+└── README.md               # This file
 ```
 
 ### Build Environment
@@ -428,7 +374,6 @@ esp32-logicanalyzer/
 - **ESPAsyncWebServer** - HTTP server
 - **ArduinoJson** - Data serialization
 - **WiFi** - Network connectivity
-- **LittleFS** - Flash file system for persistent storage
 
 ## 🕰️ Performance Tips
 
@@ -439,12 +384,6 @@ esp32-logicanalyzer/
 4. Consider **trigger modes** to capture events of interest
 5. Monitor **buffer usage** to avoid overruns
 
-**For optimal Flash storage:**
-- Use **Flash storage** for sessions >10 minutes
-- Enable **automatic storage selection** for best performance
-- Use **compact buffer** function to optimize Flash usage
-- Consider **RAM storage** for frequent, short captures
-
 **For best WiFi performance:**
 - Place device **close to router** during capture
 - Use **5GHz WiFi** if available for less congestion
@@ -452,12 +391,6 @@ esp32-logicanalyzer/
 - Consider **offline capture** then connect for data download
 
 ## 🐛 Troubleshooting
-
-**Flash Storage issues?**
-- Check LittleFS formatting in serial monitor
-- Look for "LittleFS formatted successfully" message
-- Try power cycling the device
-- Use "Clear Flash" button to reset storage
 
 **Device not connecting to WiFi?**
 - Check SSID/password in configuration
@@ -472,12 +405,11 @@ esp32-logicanalyzer/
 - Try different trigger modes
 - Monitor buffer usage
 
-**UART monitoring problems?**
-- Verify correct pin configuration (default: RX=GPIO7, TX=disabled)
-- Check baud rate settings match your device
-- Ensure proper ground connections
-- Try different buffer sizes
-- Check storage type selection
+**Display issues?**
+- Check M5AtomS3 libraries are installed
+- Verify correct board selection in platformio.ini
+- Try different USB cable/port
+- Reset device and reflash firmware
 
 **Web interface problems?**
 - Clear browser cache
@@ -500,12 +432,11 @@ Contributions welcome! Please feel free to submit pull requests or open issues.
 - Signal analysis features
 - Mobile app companion
 - Hardware designs for breakout boards
-- Flash storage optimizations
 
 ## 👥 Acknowledgments
 
 - **M5Stack** for the excellent AtomS3 hardware
-- **Espressif** for the powerful ESP32-S3 chip and LittleFS
+- **Espressif** for the powerful ESP32-S3 chip
 - **Google** for Gemini UI design inspiration
 - **PlatformIO** for the amazing development environment
 - **Open source community** for the fantastic libraries
@@ -513,11 +444,3 @@ Contributions welcome! Please feel free to submit pull requests or open issues.
 ---
 
 **Made with ❤️ for the maker community** 🚀
-
-**🆕 Version 2.1.0 Features:**
-- ✨ Flash Storage with LittleFS
-- 📊 100,000+ UART entries capacity  
-- ⚡ Intelligent RAM/Flash selection
-- 📱 Interactive buffer time estimates
-- 🔄 Real-time storage migration
-- 💾 Persistent data across reboots

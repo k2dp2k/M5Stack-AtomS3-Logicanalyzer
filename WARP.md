@@ -9,8 +9,9 @@ This is a specialized M5Stack AtomS3 logic analyzer that captures digital signal
 This implementation is specifically designed for:
 - **M5Stack AtomS3 ONLY**: Compact device with 0.85" display optimized for dual-functionality
 - **GPIO1 exclusive**: Single-channel logic analysis for maximum performance (up to 10MHz sampling)
-- **External UART monitoring**: Configurable external device communication analysis
-- **Gemini-style UI**: Modern dark interface with glass-morphism effects and professional configuration
+- **Professional UART monitoring**: LittleFS Flash storage with 100K+ entry capacity
+- **Intelligent Storage Management**: Dynamic RAM/Flash selection with real-time migration
+- **Gemini-style UI**: Modern dark interface with glass-morphism effects and Flash storage controls
 
 ## Development Commands
 
@@ -61,9 +62,13 @@ pio lib list
 
 **LogicAnalyzer Class** (`src/logic_analyzer.cpp`, `include/logic_analyzer.h`)
 - Handles all signal capture logic using ESP32-S3 GPIO1 exclusively
-- Implements dual functionality: GPIO1 logic analysis + external UART monitoring
+- Implements dual functionality: GPIO1 logic analysis + external UART monitoring with Flash storage
 - GPIO1: 16,384 sample buffer with configurable sample rates (1kHz - 10MHz)
-- UART: 200-entry circular buffer with full parameter configuration
+- UART: Intelligent dual-storage system (RAM: fast, Flash: persistent)
+- Flash Storage: LittleFS integration with up to 100,000 UART entries
+- Automatic storage selection: <5K entries=RAM, >5K entries=Flash
+- Real-time storage migration with seamless data transfer
+- Interactive buffer time estimates based on current baud rate
 - Multiple trigger modes: rising/falling edge, both edges, high/low level
 - External UART support with configurable pins, baud rates, and parameters
 - Uses microsecond-precision timestamps for accurate timing analysis
@@ -103,14 +108,17 @@ pio lib list
 - Buffer size: 16,384 samples (4x larger than multi-channel designs)
 - Internal pull-up resistor on GPIO1
 
-**External UART Monitor:**
-- **Default pins: GPIO43 (RX), GPIO44 (TX)** - configurable via web interface
+**External UART Monitor with Flash Storage:**
+- **Default pins: GPIO7 (RX), GPIO44 (TX)** - configurable via web interface
 - **Supported baud rates:** 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600
 - **Data bits:** 7 or 8 bits configurable
 - **Parity:** None, Odd, or Even
 - **Stop bits:** 1 or 2 bits
-- **Buffer size:** 200 UART communication entries
-- **Pin configuration:** Fully customizable through web GUI
+- **Buffer capacity:** 1,000 - 100,000 entries (configurable)
+- **Storage types:** RAM (fast, <5K entries) + Flash (persistent, >5K entries)
+- **Session duration:** Up to 3.5+ hours with Flash storage
+- **Real-time estimates:** Dynamic time calculations based on baud rate
+- **Pin configuration:** Fully customizable through web GUI with storage controls
 
 **General Hardware:**
 - 0.85" TFT display (128x128 pixels) with Gemini-style UI
@@ -171,11 +179,13 @@ const char* password = "YOUR_WIFI_PASSWORD";
 - **AsyncTCP**: TCP connection management for web server
 - **ArduinoJson**: JSON serialization/deserialization for API responses
 - **WiFi**: ESP32 built-in WiFi connectivity
+- **LittleFS**: Flash file system for persistent UART log storage
 
 **AtomS3 Additional Libraries:**
 - **M5AtomS3**: Core AtomS3 hardware support
 - **M5GFX**: Graphics library for display functionality
 - **M5Unified**: Unified M5Stack device support
+- **FastLED**: LED control library for status indicators
 
 Install missing dependencies:
 ```bash
