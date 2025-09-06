@@ -7,9 +7,10 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 This is a specialized M5Stack AtomS3 logic analyzer that captures digital signals on GPIO1 only and provides a web-based interface for control and data visualization. The system uses the ESP32-S3's high-speed GPIO capabilities with WiFi connectivity for wireless operation.
 
 This implementation is specifically designed for:
-- **M5Stack AtomS3 ONLY**: Compact device with 0.85" display optimized for single-channel analysis
-- **GPIO1 exclusive**: Single-channel design for maximum performance (up to 10MHz sampling)
-- **Gemini-style UI**: Modern dark interface with glass-morphism effects
+- **M5Stack AtomS3 ONLY**: Compact device with 0.85" display optimized for dual-functionality
+- **GPIO1 exclusive**: Single-channel logic analysis for maximum performance (up to 10MHz sampling)
+- **External UART monitoring**: Configurable external device communication analysis
+- **Gemini-style UI**: Modern dark interface with glass-morphism effects and professional configuration
 
 ## Development Commands
 
@@ -60,11 +61,13 @@ pio lib list
 
 **LogicAnalyzer Class** (`src/logic_analyzer.cpp`, `include/logic_analyzer.h`)
 - Handles all signal capture logic using ESP32-S3 GPIO1 exclusively
-- Implements circular buffer for sample storage (16,384 samples for single channel)
-- Single GPIO1 channel with configurable sample rates (1kHz - 10MHz)
-- Provides multiple trigger modes: rising/falling edge, both edges, high/low level
+- Implements dual functionality: GPIO1 logic analysis + external UART monitoring
+- GPIO1: 16,384 sample buffer with configurable sample rates (1kHz - 10MHz)
+- UART: 200-entry circular buffer with full parameter configuration
+- Multiple trigger modes: rising/falling edge, both edges, high/low level
+- External UART support with configurable pins, baud rates, and parameters
 - Uses microsecond-precision timestamps for accurate timing analysis
-- Optimized for maximum single-channel performance
+- Optimized for maximum single-channel logic performance + professional UART monitoring
 
 **Web Interface** (`src/main.cpp`)
 - Embedded HTTP server using ESPAsyncWebServer library
@@ -92,15 +95,28 @@ pio lib list
 ### Hardware Setup
 
 **M5Stack AtomS3 (ONLY supported platform):**
+
+**Logic Analyzer (GPIO1):**
 - **Signal input pin: GPIO1 ONLY** - optimized for maximum performance
 - Input voltage: 3.3V logic levels (0V = LOW, 3.3V = HIGH)
 - Maximum sample rate: 10MHz (single-channel optimization)
 - Buffer size: 16,384 samples (4x larger than multi-channel designs)
+- Internal pull-up resistor on GPIO1
+
+**External UART Monitor:**
+- **Default pins: GPIO43 (RX), GPIO44 (TX)** - configurable via web interface
+- **Supported baud rates:** 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600
+- **Data bits:** 7 or 8 bits configurable
+- **Parity:** None, Odd, or Even
+- **Stop bits:** 1 or 2 bits
+- **Buffer size:** 200 UART communication entries
+- **Pin configuration:** Fully customizable through web GUI
+
+**General Hardware:**
 - 0.85" TFT display (128x128 pixels) with Gemini-style UI
 - Physical button for start/stop capture
 - Compact form factor (24×24×10mm)
 - USB-C for power and programming
-- Internal pull-up resistor on GPIO1
 
 ### WiFi Configuration
 Update credentials in `src/main.cpp`:
@@ -135,11 +151,13 @@ const char* password = "YOUR_WIFI_PASSWORD";
 
 **Display Features:**
 - Real-time status display (READY/CAPTURING) with Gemini-style UI
-- Buffer usage indicator with purple progress bar
-- Current sample rate (up to 10MHz)
+- Buffer usage indicator with purple progress bar for GPIO1 analysis
+- Current sample rate display (up to 10MHz)
 - Live GPIO1 state visualization (HIGH/LOW with color coding)
+- UART monitoring status when external communication is active
 - WiFi connection status with animated indicators
 - Modern dark theme with glass-morphism effects
+- Dual-mode operation indicator (Logic + UART)
 
 **Physical Controls:**
 - Button A: Toggle capture start/stop

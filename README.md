@@ -80,9 +80,9 @@ A specialized, wireless logic analyzer built **exclusively for the M5Stack AtomS
 
 ## 🔌 Usage
 
-### 📡 UART Communication Monitoring
+### 📡 Configurable External UART Monitoring
 
-The AtomS3 Logic Analyzer includes built-in UART monitoring capabilities to capture and analyze serial communication alongside GPIO1 signal analysis.
+The AtomS3 Logic Analyzer features a professional external UART monitoring system that can analyze communication between any two devices with full parameter configuration via web interface.
 
 **Key Features:**
 - **Real-time monitoring** of UART RX/TX data
@@ -92,35 +92,40 @@ The AtomS3 Logic Analyzer includes built-in UART monitoring capabilities to capt
 - **Text export** for external analysis tools
 
 **How it works:**
-1. UART monitoring captures all data sent/received via Serial port
-2. Data is automatically parsed into readable format
-3. Both directions (RX/TX) are logged with timestamps
-4. Logs are viewable in real-time via web interface
-5. Export logs as downloadable text files
+1. Configure UART parameters via web interface
+2. Connect external device TX → AtomS3 RX (GPIO43)
+3. Connect external device RX → AtomS3 TX (GPIO44) 
+4. Share common ground between devices
+5. Start monitoring to capture all communication
+6. View real-time data with statistics and timestamps
 
-**Use cases:**
-- Debug microcontroller communication protocols
-- Analyze sensor data streams in real-time
-- Monitor command/response sequences
-- Capture intermittent communication issues
-- Document communication for reverse engineering
+**Professional Use Cases:**
+- **Protocol Analysis**: Debug I2C, SPI, Modbus over UART
+- **Device Communication**: Monitor Arduino, ESP32, STM32 serial communication
+- **Sensor Networks**: Analyze sensor data streams and responses
+- **Industrial Systems**: Monitor PLC and HMI communication
+- **IoT Development**: Debug wireless module AT commands
+- **Reverse Engineering**: Document unknown communication protocols
 
 ### 🔌 Hardware Setup
 
 ```
-M5Stack AtomS3 - Single Channel Logic Analyzer:
-┌───────────────────────────────┐
-│ 📺 [0.85" Display] 🔘 [Button] │
-│                              │
-│ GPIO1 ◀── 🔌 SIGNAL INPUT       │  ← Connect your digital signal here
-│                              │  ← (3.3V logic levels only)
-│ GND   ◀── ⚡ COMMON GROUND        │  ← Connect signal ground
-│                              │
-│ 💻 USB-C (Power + Programming)  │
-└───────────────────────────────┘
+M5Stack AtomS3 - Logic + UART Communication Analyzer:
+┌───────────────────────────────────────────┐
+│ 📺 [0.85" Display] 🔘 [Button]          │
+│                                        │
+│ GPIO1  ◀── 🔌 LOGIC SIGNAL INPUT     │  ← Digital logic analysis (10MHz)
+│ GPIO43 ◀── 📡 UART RX (configurable)  │  ← External device TX connection
+│ GPIO44  ─▶ 📡 UART TX (configurable)  │  ← External device RX connection
+│ GND    ◀── ⚡ COMMON GROUND           │  ← Shared ground for all signals
+│                                        │
+│ 💻 USB-C (Power + Programming)        │
+└───────────────────────────────────────────┘
 
-🔴 IMPORTANT: Only GPIO1 is used for signal capture!
-🟢 This design sacrifices multi-channel for maximum single-channel performance.
+🔴 DUAL FUNCTIONALITY:
+• GPIO1: High-speed logic analysis (single-channel, up to 10MHz)
+• GPIO43/44: Configurable external UART monitoring
+• All pins configurable via web interface
 ```
 
 **Signal Requirements (GPIO1 ONLY):**
@@ -138,11 +143,20 @@ M5Stack AtomS3 - Single Channel Logic Analyzer:
 - **🗑️ Clear Data** - Reset capture buffer
 - **📥 Download** - Export data as JSON or CSV
 
-**UART Monitoring:**
-- **▶️ Start UART** - Begin UART communication monitoring
+**UART Monitoring & Configuration:**
+- **▶️ Start UART** - Begin external UART communication monitoring
 - **⏹️ Stop UART** - End UART monitoring session
+- **⚙️ Configure** - Open UART parameter configuration panel
 - **🗑️ Clear UART** - Clear UART communication logs
 - **📥 Download UART** - Export UART logs as text file
+
+**UART Configuration Panel:**
+- **Baudrate Selection** - 9600 to 921600 baud dropdown
+- **Data Bits** - 7 or 8 bit selection
+- **Parity Setting** - None, Odd, or Even parity
+- **Stop Bits** - 1 or 2 stop bits
+- **GPIO Pin Selection** - Configurable RX/TX pins
+- **✅ Apply Configuration** - Save and activate settings
 
 **Real-time Status:**
 - **Capture State** - READY/CAPTURING with color coding
@@ -150,17 +164,20 @@ M5Stack AtomS3 - Single Channel Logic Analyzer:
 - **Buffer Usage** - Memory utilization percentage (16,384 samples)
 - **GPIO1 State** - Live signal level display (HIGH/LOW with colors)
 - **UART Status** - Active/Disabled monitoring state
-- **UART Activity** - Last communication timestamp
+- **UART Configuration** - Current settings display (e.g., "115200 8N1")
+- **UART Pins** - Active RX/TX GPIO pins (e.g., "RX:43 TX:44")
+- **UART Statistics** - Real-time byte counters (RX/TX separately)
 
 ### 📱 Device Display
 
 **Information shown:**
 - **GPIO1 ANALYZER** - Main title with status indicators
-- **READY/CAPTURING** - Current operation state
-- **Rate: X.XMHz** - Sampling frequency
-- **Buf: XX%** - Buffer usage with purple progress bar
-- **WiFi/GPIO1** - Connection and signal status cards
-- **UART monitoring** - Active when serial communication is detected
+- **READY/CAPTURING** - Current logic analyzer operation state
+- **Rate: X.XMHz** - GPIO1 sampling frequency (up to 10MHz)
+- **Buf: XX%** - Logic analyzer buffer usage with purple progress bar
+- **WiFi Status** - Connection indicator and network information
+- **GPIO1 State** - Live HIGH/LOW status with color coding
+- **UART Status** - External UART monitoring state when configured
 
 **Physical Controls:**
 - **Button press** - Start/stop capture toggle
@@ -198,9 +215,17 @@ M5Stack AtomS3 - Single Channel Logic Analyzer:
 | **Sample Buffer** | 16,384 samples |
 | **Max Sample Rate** | 10MHz (GPIO1 optimized) |
 | **Timing Precision** | 1μs resolution |
+| **Logic Analyzer** | **Specification** |
 | **Input Channels** | 1 (GPIO1 ONLY) |
 | **Pin Configuration** | GPIO1 + GND (2-wire) |
 | **Trigger Modes** | Rising, Falling, Both, Level |
+| **UART Monitor** | **Specification** |
+| **UART Channels** | External RX/TX (configurable pins) |
+| **Default UART Pins** | RX: GPIO43, TX: GPIO44 |
+| **Supported Baud Rates** | 9600 - 921600 baud |
+| **UART Parameters** | 7/8 data bits, None/Odd/Even parity, 1/2 stop bits |
+| **UART Buffer** | 200 entries circular buffer |
+| **General** | **Specification** |
 | **Display** | 128x128 TFT (0.85") Gemini UI |
 | **Connectivity** | WiFi 802.11 b/g/n |
 | **Power** | USB-C (5V) or Battery |
@@ -226,35 +251,57 @@ This project prioritizes **single-channel performance** over multi-channel compl
 
 ## 📦 Data Export Formats
 
-### JSON Format (GPIO1 Optimized)
+### JSON Format (GPIO1 Logic + UART Data)
 ```json
 {
   "device": "M5Stack-AtomS3",
-  "analyzer_version": "1.0.0",
-  "channel_config": {
-    "pin": "GPIO1",
-    "channels": 1,
-    "pull_up": true
-  },
-  "capture_info": {
-    "sample_count": 1024,
-    "sample_rate": 10000000,
-    "buffer_size": 16384,
-    "trigger_mode": "rising_edge",
-    "capture_duration_us": 102
-  },
-  "samples": [
-    {
-      "timestamp_us": 1,
-      "gpio1_state": 1,
-      "logic_level": "HIGH"
+  "analyzer_version": "2.0.0",
+  "logic_analyzer": {
+    "channel_config": {
+      "pin": "GPIO1",
+      "channels": 1,
+      "pull_up": true
     },
-    {
-      "timestamp_us": 2,
-      "gpio1_state": 0,
-      "logic_level": "LOW"
-    }
-  ]
+    "capture_info": {
+      "sample_count": 1024,
+      "sample_rate": 10000000,
+      "buffer_size": 16384,
+      "trigger_mode": "rising_edge",
+      "capture_duration_us": 102
+    },
+    "samples": [
+      {
+        "timestamp_us": 1,
+        "gpio1_state": 1,
+        "logic_level": "HIGH"
+      },
+      {
+        "timestamp_us": 2,
+        "gpio1_state": 0,
+        "logic_level": "LOW"
+      }
+    ]
+  },
+  "uart_monitor": {
+    "config": {
+      "baudrate": 115200,
+      "data_bits": 8,
+      "parity": "None",
+      "stop_bits": 1,
+      "rx_pin": 43,
+      "tx_pin": 44
+    },
+    "statistics": {
+      "bytes_received": 2048,
+      "bytes_sent": 512,
+      "monitoring_enabled": true,
+      "last_activity": 1642534567890
+    },
+    "uart_logs": [
+      "1642534567890: [UART RX] Hello World",
+      "1642534567891: [UART TX] OK"
+    ]
+  }
 }
 ```
 
