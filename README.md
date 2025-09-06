@@ -3,7 +3,7 @@
 > **Professional-grade dual-mode analyzer with Flash Storage and Gemini-style UI**
 
 [![Version](https://img.shields.io/badge/Version-2.3.0-brightgreen.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
-[![Flash Storage](https://img.shields.io/badge/Flash%20Storage-6MB%20Partition-blue.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
+[![Flash Storage](https://img.shields.io/badge/Flash%20Storage-Enhanced-blue.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
 [![UART Monitor](https://img.shields.io/badge/UART-Professional-yellow.svg)](https://github.com/k2dp2k/M5Stack-AtomS3-Logicanalyzer)
 [![PlatformIO CI](https://img.shields.io/badge/PlatformIO-Ready-orange.svg)](https://platformio.org/)
 [![ESP32-S3](https://img.shields.io/badge/ESP32--S3-Compatible-blue.svg)](https://www.espressif.com/en/products/socs/esp32-s3)
@@ -13,7 +13,7 @@
 A **professional-grade dual-mode analyzer** built exclusively for the M5Stack AtomS3 featuring:
 
 🔋 **High-Speed Logic Analysis** - Up to 10MHz sampling on GPIO1 with 16,384-sample buffer  
-💾 **Flash Storage System** - Store up to 1,000,000+ UART entries with 6MB LittleFS partition
+💾 **Flash Storage System** - Store up to 200,000+ UART entries with enhanced LittleFS partition
 📡 **Professional UART Monitor** - Full-duplex communication analysis with intelligent buffer management  
 🌌 **Gemini-Style Interface** - Modern dark UI with glass-morphism effects and real-time controls  
 ⚡ **Wireless Operation** - Complete WiFi connectivity with web-based control and data export  
@@ -282,7 +282,7 @@ Operation          | RAM      | Flash (LittleFS)
 -------------------|----------|------------------
 Write Speed        | ~1μs     | ~1ms
 Read Speed         | ~1μs     | ~100μs
-Max Capacity       | ~5K      | 1M+ entries (6MB)
+Max Capacity       | ~5K      | 200K+ entries
 Persistence        | ❌       | ✅ Survives reboot
 Wear Leveling      | N/A      | ✅ Automatic
 Data Migration     | N/A      | ✅ Seamless
@@ -332,7 +332,7 @@ Data Migration     | N/A      | ✅ Seamless
 | **Hardware** | **Specification** |
 | **MCU** | ESP32-S3 (240MHz dual-core) |
 | **RAM Usage** | ~179KB (54.6% of 320KB) |
-|| **Flash Usage** | ~1.04MB (49.6% of 2MB app partition) |
+|| **Flash Usage** | ~1.04MB (33.2% of 3MB app partition) |
 | **Sample Buffer** | 16,384 samples |
 | **Max Sample Rate** | 10MHz (GPIO1 optimized) |
 | **Timing Precision** | 1μs resolution |
@@ -563,9 +563,9 @@ Contributions welcome! Please feel free to submit pull requests or open issues.
 **Made with ❤️ for the maker community** 🚀
 
 **🆕 Version 2.3.0 Features:**
-- ✨ **6MB Flash Partition** - Custom partition table for massive storage
-- 📊 **1,000,000+ UART entries** - 10x increased capacity over previous version
 - 🎨 **Modern Animated Logo** - Blue-purple gradient with glass-morphism effects
-- 🔧 **Fixed Display Flickering** - Optimized refresh rates and redraw logic
-- 💾 **Flash-First Storage** - Default to persistent storage for maximum reliability
-- 🖱️ **Improved UI Controls** - Renamed "Compact Buffer" to "Copy Data" with clipboard function
+- 🔧 **Fixed Display Flickering** - Optimized refresh rates and redraw logic  
+- 💾 **Enhanced Flash Storage** - Improved storage reliability and performance
+- 🖱️ **Better UI Controls** - Renamed "Compact Buffer" to "Copy Data" with clipboard function
+- ⚙️ **UART Button Fixes** - Toggle button appearance now updates correctly
+- 📊 **Stable Storage System** - Up to 200,000+ UART entries with reliable persistence
