@@ -697,7 +697,7 @@ void LogicAnalyzer::processUartData() {
             uartRxBuffer += c;
             
             // Prevent buffer overflow
-            if (uartRxBuffer.length() > 200) {
+            if (uartRxBuffer.length() > UART_MSG_MAX_LENGTH) {
                 addUartEntry(uartRxBuffer + " [TRUNCATED]", true);
                 uartRxBuffer = "";
             }
@@ -721,9 +721,9 @@ void LogicAnalyzer::addUartEntry(const String& data, bool isRx) {
     
     uartLogBuffer.push_back(uartEntry);
     
-    // Keep only the last MAX_UART_ENTRIES
+    // Use smart buffer management instead of simple deletion
     if (uartLogBuffer.size() > MAX_UART_ENTRIES) {
-        uartLogBuffer.erase(uartLogBuffer.begin());
+        compactUartLogs();  // Remove oldest 20% when full
     }
     
     // Also add to regular serial log for debugging
@@ -744,6 +744,8 @@ String LogicAnalyzer::getUartLogsAsJSON() {
     doc["last_activity"] = lastUartActivity;
     doc["bytes_received"] = uartBytesReceived;
     doc["bytes_sent"] = uartBytesSent;
+    doc["memory_usage"] = getUartMemoryUsage();
+    doc["buffer_full"] = isUartBufferFull();
     
     // Embed config as JSON object, not string
     JsonDocument configDoc;
@@ -859,6 +861,35 @@ void LogicAnalyzer::loadUartConfig() {
 
 void LogicAnalyzer::setPreferences(Preferences* prefs) {
     preferences = prefs;
+}
+
+// UART Buffer Management Functions
+size_t LogicAnalyzer::getUartLogCount() const {
+    return uartLogBuffer.size();
+}
+
+size_t LogicAnalyzer::getUartMemoryUsage() const {
+    size_t totalSize = 0;
+    for (const auto& entry : uartLogBuffer) {
+        totalSize += entry.length();
+    }
+    return totalSize;
+}
+
+bool LogicAnalyzer::isUartBufferFull() const {
+    return uartLogBuffer.size() >= MAX_UART_ENTRIES;
+}
+
+void LogicAnalyzer::compactUartLogs() {
+    // Remove oldest 20% of entries when buffer is getting full
+    if (uartLogBuffer.size() >= MAX_UART_ENTRIES * 0.9) {
+        size_t removeCount = MAX_UART_ENTRIES * 0.2;
+        uartLogBuffer.erase(uartLogBuffer.begin(), uartLogBuffer.begin() + removeCount);
+        
+        String compactMsg = "UART buffer compacted: removed " + String(removeCount) + " oldest entries";
+        addLogEntry(compactMsg);
+        Serial.println(compactMsg);
+    }
 }
 
 #endif

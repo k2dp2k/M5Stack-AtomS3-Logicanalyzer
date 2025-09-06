@@ -64,7 +64,8 @@ private:
     std::vector<String> serialLogBuffer;
     std::vector<String> uartLogBuffer;
     static const size_t MAX_LOG_ENTRIES = 100;
-    static const size_t MAX_UART_ENTRIES = 200;
+    static const size_t MAX_UART_ENTRIES = 1000;  // Increased from 200 to 1000 entries
+    static const size_t UART_MSG_MAX_LENGTH = 300;  // Max length per UART message
     
     // UART monitoring configuration
     struct UartConfig {
@@ -142,6 +143,12 @@ public:
     void saveUartConfig();
     void loadUartConfig();
     void setPreferences(Preferences* prefs);
+    
+    // UART buffer management
+    size_t getUartLogCount() const;
+    size_t getUartMemoryUsage() const;
+    bool isUartBufferFull() const;
+    void compactUartLogs();  // Remove oldest entries when buffer is getting full
     
     // Data export
     String getDataAsCSV();

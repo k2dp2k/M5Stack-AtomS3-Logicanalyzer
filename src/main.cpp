@@ -244,6 +244,24 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"status\":\"cleared\",\"message\":\"UART logs cleared\"}");
     });
     
+    // UART buffer management
+    server.on("/api/uart/compact", HTTP_POST, [](AsyncWebServerRequest *request){
+        analyzer.compactUartLogs();
+        request->send(200, "application/json", "{\"status\":\"compacted\",\"message\":\"UART buffer compacted\"}");
+    });
+    
+    server.on("/api/uart/stats", HTTP_GET, [](AsyncWebServerRequest *request){
+        JsonDocument doc;
+        doc["count"] = analyzer.getUartLogCount();
+        doc["memory_usage"] = analyzer.getUartMemoryUsage();
+        doc["buffer_full"] = analyzer.isUartBufferFull();
+        doc["max_entries"] = 1000;  // MAX_UART_ENTRIES value
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
     // Clear buffer data endpoint
     server.on("/api/data/clear", HTTP_POST, [](AsyncWebServerRequest *request){
         analyzer.clearBuffer();
@@ -433,7 +451,8 @@ String getIndexHTML() {
            "<button class='gemini-btn danger' onclick='disableUartMonitoring()' id='uart-disable'>⏹️ Stop UART</button>" 
            "<button class='gemini-btn secondary' onclick='toggleUartConfig()'>⚙️ Configure</button>" 
            "<button class='gemini-btn secondary' onclick='clearUartLogs()'>🗑️ Clear UART</button>" 
-           "<button class='gemini-btn' onclick='downloadUartLogs()'>📥 Download UART</button>" 
+           "<button class='gemini-btn secondary' onclick='compactUartLogs()'>📋 Compact Buffer</button>" 
+           "<button class='gemini-btn' onclick='downloadUartLogs()'>📥 Download UART</button>"
            "</div>" 
            "<div id='uart-config' style='display:none;margin:15px 0;padding:20px;background:rgba(156,39,176,0.1);border-radius:12px;'>" 
            "<h4 style='margin-bottom:15px;color:#9c27b0;'>⚙️ UART Configuration</h4>" 
@@ -464,6 +483,8 @@ String getIndexHTML() {
            "<div class='info-item'><strong>Config:</strong> <span id='uart-current-config'>115200 8N1</span></div>" 
            "<div class='info-item'><strong>Pins:</strong> <span id='uart-pins'>RX:43 TX:44</span></div>" 
            "<div class='info-item'><strong>Bytes:</strong> <span id='uart-bytes'>RX:0 TX:0</span></div>" 
+           "<div class='info-item'><strong>Buffer:</strong> <span id='uart-buffer-info'>0/1000 (0KB)</span></div>" 
+           "<div class='info-item'><strong>Memory:</strong> <span id='uart-memory-usage'>0KB used</span></div>"
            "</div>" 
            "<div id='uart-logs' class='gemini-mono'>UART monitoring disabled...</div>" 
            "</div>"
@@ -480,7 +501,8 @@ String getIndexHTML() {
            "function enableUartMonitoring(){fetch('/api/uart/enable',{method:'POST'}).then(()=>loadUartLogs());}" 
            "function disableUartMonitoring(){fetch('/api/uart/disable',{method:'POST'}).then(()=>loadUartLogs());}" 
            "function clearUartLogs(){fetch('/api/uart/clear',{method:'POST'}).then(()=>loadUartLogs());}" 
-           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits;document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';}).catch(e=>console.error('UART logs error:',e));}"
+           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits;document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;document.getElementById('uart-buffer-info').textContent=d.count+'/'+d.max_entries+' ('+(d.memory_usage/1024).toFixed(1)+'KB)';document.getElementById('uart-memory-usage').textContent=(d.memory_usage/1024).toFixed(1)+'KB used';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';}).catch(e=>console.error('UART logs error:',e));}" 
+           "function compactUartLogs(){fetch('/api/uart/compact',{method:'POST'}).then(()=>loadUartLogs());}"
            "function downloadUartLogs(){window.open('/download/uart','_blank');}" 
            "function toggleUartConfig(){const config=document.getElementById('uart-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadUartConfig();}}" 
            "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;}).catch(e=>console.error('UART config load error:',e));}"
