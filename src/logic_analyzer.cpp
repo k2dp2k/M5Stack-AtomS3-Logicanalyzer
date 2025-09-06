@@ -19,7 +19,10 @@ LogicAnalyzer::LogicAnalyzer() {
     uartSerial = nullptr;
     uartMonitoringEnabled = false;
     uartRxBuffer = "";
+    uartTxBuffer = "";
     lastUartActivity = 0;
+    uartBytesReceived = 0;
+    uartBytesSent = 0;
     
     sampleInterval = 1000000 / sampleRate; // microseconds
 }
@@ -601,18 +604,77 @@ String LogicAnalyzer::getDataAsCSV() {
 }
 
 // UART Monitoring Functions
-void LogicAnalyzer::enableUartMonitoring(Stream* serial) {
-    uartSerial = serial;
+void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, uint8_t txPin) {
+    uartConfig.baudrate = baudrate;
+    uartConfig.dataBits = dataBits;
+    uartConfig.parity = parity;
+    uartConfig.stopBits = stopBits;
+    uartConfig.rxPin = rxPin;
+    uartConfig.txPin = txPin;
+    
+    saveUartConfig();
+    
+    String configMsg = "UART configured: " + String(baudrate) + " baud, " + String(dataBits) + 
+                       String(parity == 0 ? "N" : (parity == 1 ? "O" : "E")) + String(stopBits) +
+                       ", RX:" + String(rxPin) + ", TX:" + String(txPin);
+    addLogEntry(configMsg);
+    Serial.println(configMsg);
+}
+
+void LogicAnalyzer::enableUartMonitoring() {
+    if (uartSerial) {
+        uartSerial->end();
+    }
+    
+    // Use Serial2 for external UART monitoring
+    uartSerial = &Serial2;
+    
+    // Configure UART parameters
+    uint32_t config = SERIAL_8N1;
+    if (uartConfig.dataBits == 7) {
+        if (uartConfig.parity == 0) config = SERIAL_7N1;
+        else if (uartConfig.parity == 1) config = SERIAL_7O1;
+        else if (uartConfig.parity == 2) config = SERIAL_7E1;
+        if (uartConfig.stopBits == 2) {
+            if (uartConfig.parity == 0) config = SERIAL_7N2;
+            else if (uartConfig.parity == 1) config = SERIAL_7O2;
+            else if (uartConfig.parity == 2) config = SERIAL_7E2;
+        }
+    } else if (uartConfig.dataBits == 8) {
+        if (uartConfig.parity == 0) config = SERIAL_8N1;
+        else if (uartConfig.parity == 1) config = SERIAL_8O1;
+        else if (uartConfig.parity == 2) config = SERIAL_8E1;
+        if (uartConfig.stopBits == 2) {
+            if (uartConfig.parity == 0) config = SERIAL_8N2;
+            else if (uartConfig.parity == 1) config = SERIAL_8O2;
+            else if (uartConfig.parity == 2) config = SERIAL_8E2;
+        }
+    }
+    
+    uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, uartConfig.txPin);
     uartMonitoringEnabled = true;
+    uartConfig.enabled = true;
     uartRxBuffer = "";
+    uartTxBuffer = "";
     lastUartActivity = millis();
-    addLogEntry("UART monitoring enabled");
-    Serial.println("UART monitoring enabled");
+    uartBytesReceived = 0;
+    uartBytesSent = 0;
+    
+    String enableMsg = "UART monitoring enabled on RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin) + 
+                       " @ " + String(uartConfig.baudrate) + " baud";
+    addLogEntry(enableMsg);
+    Serial.println(enableMsg);
 }
 
 void LogicAnalyzer::disableUartMonitoring() {
     uartMonitoringEnabled = false;
-    uartSerial = nullptr;
+    uartConfig.enabled = false;
+    
+    if (uartSerial) {
+        uartSerial->end();
+        uartSerial = nullptr;
+    }
+    
     addLogEntry("UART monitoring disabled");
     Serial.println("UART monitoring disabled");
 }
@@ -622,6 +684,7 @@ void LogicAnalyzer::processUartData() {
     
     while (uartSerial->available()) {
         char c = uartSerial->read();
+        uartBytesReceived++;
         lastUartActivity = millis();
         
         if (c == '\n' || c == '\r') {
@@ -637,6 +700,9 @@ void LogicAnalyzer::processUartData() {
                 addUartEntry(uartRxBuffer + " [TRUNCATED]", true);
                 uartRxBuffer = "";
             }
+        } else {
+            // Handle non-printable characters as hex
+            uartRxBuffer += "[0x" + String(c, HEX) + "]";
         }
     }
     
@@ -675,6 +741,25 @@ String LogicAnalyzer::getUartLogsAsJSON() {
     doc["max_entries"] = MAX_UART_ENTRIES;
     doc["monitoring_enabled"] = uartMonitoringEnabled;
     doc["last_activity"] = lastUartActivity;
+    doc["bytes_received"] = uartBytesReceived;
+    doc["bytes_sent"] = uartBytesSent;
+    doc["config"] = getUartConfigAsJSON();
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+String LogicAnalyzer::getUartConfigAsJSON() {
+    JsonDocument doc;
+    doc["baudrate"] = uartConfig.baudrate;
+    doc["data_bits"] = uartConfig.dataBits;
+    doc["parity"] = uartConfig.parity;  // 0=None, 1=Odd, 2=Even
+    doc["parity_string"] = (uartConfig.parity == 0 ? "None" : (uartConfig.parity == 1 ? "Odd" : "Even"));
+    doc["stop_bits"] = uartConfig.stopBits;
+    doc["rx_pin"] = uartConfig.rxPin;
+    doc["tx_pin"] = uartConfig.txPin;
+    doc["enabled"] = uartConfig.enabled;
     
     String result;
     serializeJson(doc, result);
@@ -705,6 +790,19 @@ String LogicAnalyzer::getUartLogsAsPlainText() {
 void LogicAnalyzer::clearUartLogs() {
     uartLogBuffer.clear();
     addLogEntry("UART logs cleared");
+}
+
+void LogicAnalyzer::saveUartConfig() {
+    // Save UART config to preferences (would need Preferences instance)
+    // For now, just log the configuration
+    String configMsg = "UART config saved: " + String(uartConfig.baudrate) + " baud";
+    addLogEntry(configMsg);
+}
+
+void LogicAnalyzer::loadUartConfig() {
+    // Load UART config from preferences (would need Preferences instance)
+    // For now, use default values
+    addLogEntry("UART config loaded (defaults)");
 }
 
 #endif

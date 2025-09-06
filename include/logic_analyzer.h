@@ -65,11 +65,25 @@ private:
     static const size_t MAX_LOG_ENTRIES = 100;
     static const size_t MAX_UART_ENTRIES = 200;
     
-    // UART monitoring - using Stream for compatibility with both HardwareSerial and HWCDC
-    Stream* uartSerial;
+    // UART monitoring configuration
+    struct UartConfig {
+        uint32_t baudrate = 115200;
+        uint8_t dataBits = 8;
+        uint8_t parity = 0;  // 0=None, 1=Odd, 2=Even
+        uint8_t stopBits = 1;
+        uint8_t rxPin = 43;  // AtomS3 GPIO43 (G43)
+        uint8_t txPin = 44;  // AtomS3 GPIO44 (G44)
+        bool enabled = false;
+    };
+    
+    UartConfig uartConfig;
+    HardwareSerial* uartSerial;
     bool uartMonitoringEnabled;
     String uartRxBuffer;
+    String uartTxBuffer;
     uint32_t lastUartActivity;
+    uint32_t uartBytesReceived;
+    uint32_t uartBytesSent;
     
     // Private methods - optimized for GPIO1
     void initializeGPIO1();
@@ -111,14 +125,18 @@ public:
     String getLogsAsPlainText();
     void clearLogs();
     
-    // UART logging - using Stream for ESP32-S3 HWCDC compatibility
-    void enableUartMonitoring(Stream* serial = &Serial);
+    // UART logging with configurable settings
+    void configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, uint8_t txPin);
+    void enableUartMonitoring();
     void disableUartMonitoring();
     void addUartEntry(const String& data, bool isRx = true);
     String getUartLogsAsJSON();
     String getUartLogsAsPlainText();
+    String getUartConfigAsJSON();
     void clearUartLogs();
     void processUartData();
+    void saveUartConfig();
+    void loadUartConfig();
     
     // Data export
     String getDataAsCSV();

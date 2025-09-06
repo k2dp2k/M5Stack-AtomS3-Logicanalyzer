@@ -78,8 +78,8 @@ void setup() {
         startAPMode();
     }
     
-    // Enable UART monitoring by default
-    analyzer.enableUartMonitoring(&Serial);
+    // Load UART configuration
+    analyzer.loadUartConfig();
     
     // Setup web server routes
     setupWebServer();
@@ -189,8 +189,46 @@ void setupWebServer() {
     });
     
     server.on("/api/uart/enable", HTTP_POST, [](AsyncWebServerRequest *request){
-        analyzer.enableUartMonitoring(&Serial);
+        analyzer.enableUartMonitoring();
         request->send(200, "application/json", "{\"status\":\"enabled\",\"message\":\"UART monitoring started\"}");
+    });
+    
+    // UART configuration endpoint
+    server.on("/api/uart/config", HTTP_POST, [](AsyncWebServerRequest *request){
+        uint32_t baudrate = 115200;
+        uint8_t dataBits = 8;
+        uint8_t parity = 0;
+        uint8_t stopBits = 1;
+        uint8_t rxPin = 43;
+        uint8_t txPin = 44;
+        
+        if (request->hasParam("baudrate", true)) {
+            baudrate = request->getParam("baudrate", true)->value().toInt();
+        }
+        if (request->hasParam("data_bits", true)) {
+            dataBits = request->getParam("data_bits", true)->value().toInt();
+        }
+        if (request->hasParam("parity", true)) {
+            parity = request->getParam("parity", true)->value().toInt();
+        }
+        if (request->hasParam("stop_bits", true)) {
+            stopBits = request->getParam("stop_bits", true)->value().toInt();
+        }
+        if (request->hasParam("rx_pin", true)) {
+            rxPin = request->getParam("rx_pin", true)->value().toInt();
+        }
+        if (request->hasParam("tx_pin", true)) {
+            txPin = request->getParam("tx_pin", true)->value().toInt();
+        }
+        
+        analyzer.configureUart(baudrate, dataBits, parity, stopBits, rxPin, txPin);
+        request->send(200, "application/json", "{\"status\":\"configured\",\"message\":\"UART settings updated\"}");
+    });
+    
+    // Get UART configuration
+    server.on("/api/uart/config", HTTP_GET, [](AsyncWebServerRequest *request){
+        String config = analyzer.getUartConfigAsJSON();
+        request->send(200, "application/json", config);
     });
     
     server.on("/api/uart/disable", HTTP_POST, [](AsyncWebServerRequest *request){
@@ -390,15 +428,42 @@ String getIndexHTML() {
            "<div class='controls'>" 
            "<button class='gemini-btn success' onclick='enableUartMonitoring()' id='uart-enable'>▶️ Start UART</button>" 
            "<button class='gemini-btn danger' onclick='disableUartMonitoring()' id='uart-disable'>⏹️ Stop UART</button>" 
+           "<button class='gemini-btn secondary' onclick='toggleUartConfig()'>⚙️ Configure</button>" 
            "<button class='gemini-btn secondary' onclick='clearUartLogs()'>🗑️ Clear UART</button>" 
            "<button class='gemini-btn' onclick='downloadUartLogs()'>📥 Download UART</button>" 
            "</div>" 
+           "<div id='uart-config' style='display:none;margin:15px 0;padding:20px;background:rgba(156,39,176,0.1);border-radius:12px;'>" 
+           "<h4 style='margin-bottom:15px;color:#9c27b0;'>⚙️ UART Configuration</h4>" 
+           "<div class='info-grid'>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Baudrate:</label>" 
+           "<select id='uart-baudrate' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='9600'>9600</option><option value='19200'>19200</option><option value='38400'>38400</option>" 
+           "<option value='57600'>57600</option><option value='115200' selected>115200</option><option value='230400'>230400</option>" 
+           "<option value='460800'>460800</option><option value='921600'>921600</option></select></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Data Bits:</label>" 
+           "<select id='uart-databits' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='7'>7</option><option value='8' selected>8</option></select></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Parity:</label>" 
+           "<select id='uart-parity' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='0' selected>None</option><option value='1'>Odd</option><option value='2'>Even</option></select></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Stop Bits:</label>" 
+           "<select id='uart-stopbits' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='1' selected>1</option><option value='2'>2</option></select></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>RX Pin:</label>" 
+           "<input id='uart-rxpin' type='number' value='43' min='0' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>TX Pin:</label>" 
+           "<input id='uart-txpin' type='number' value='44' min='0' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
+           "</div>" 
+           "<div style='margin-top:15px;'><button class='gemini-btn' onclick='saveUartConfig()'>✅ Apply Configuration</button></div>" 
+           "</div>" 
            "<div id='uart-status' class='info-grid' style='margin:10px 0;'>" 
            "<div class='info-item'><strong>Status:</strong> <span id='uart-monitoring-status'>Disabled</span></div>" 
-           "<div class='info-item'><strong>Activity:</strong> <span id='uart-last-activity'>None</span></div>" 
+           "<div class='info-item'><strong>Config:</strong> <span id='uart-current-config'>115200 8N1</span></div>" 
+           "<div class='info-item'><strong>Pins:</strong> <span id='uart-pins'>RX:43 TX:44</span></div>" 
+           "<div class='info-item'><strong>Bytes:</strong> <span id='uart-bytes'>RX:0 TX:0</span></div>" 
            "</div>" 
            "<div id='uart-logs' class='gemini-mono'>UART monitoring disabled...</div>" 
-           "</div>" 
+           "</div>"
            "</div>" 
            "<script>"
            "function startCapture(){fetch('/api/start',{method:'POST'}).then(()=>updateAll());}" 
@@ -412,8 +477,11 @@ String getIndexHTML() {
            "function enableUartMonitoring(){fetch('/api/uart/enable',{method:'POST'}).then(()=>loadUartLogs());}" 
            "function disableUartMonitoring(){fetch('/api/uart/disable',{method:'POST'}).then(()=>loadUartLogs());}" 
            "function clearUartLogs(){fetch('/api/uart/clear',{method:'POST'}).then(()=>loadUartLogs());}" 
-           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';document.getElementById('uart-last-activity').textContent=d.last_activity>0?(d.last_activity+'ms ago'):'None';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';});}" 
-           "function downloadUartLogs(){window.open('/download/uart','_blank');}"
+           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=JSON.parse(d.config);document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits;document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';});}" 
+           "function downloadUartLogs(){window.open('/download/uart','_blank');}" 
+           "function toggleUartConfig(){const config=document.getElementById('uart-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadUartConfig();}}" 
+           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;});}" 
+           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}"
            "function updateAll(){" 
            "fetch('/api/status').then(r=>r.json()).then(d=>{" 
            "const indicator=d.capturing?'<span class=\"gemini-indicator capturing\"></span>':'<span class=\"gemini-indicator ready\"></span>';" 
