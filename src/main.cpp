@@ -12,7 +12,7 @@
 #endif
 
 // Access Point Configuration
-const char* ap_ssid = "AtomS3-AtomProbe";
+const char* ap_ssid = "M5Stack-AtomProbe";
 const char* ap_password = "probe123";  // At least 8 characters
 
 // WiFi Configuration
@@ -51,7 +51,7 @@ void setup() {
     AtomS3.begin(cfg);
     display = AtomS3.Display;
     
-    Serial.println("AtomS3 AtomProbe Starting...");
+    Serial.println("M5Stack AtomProbe Starting...");
     
     // Initialize logic analyzer
     analyzer.begin();
@@ -554,7 +554,7 @@ void setupWebServer() {
     server.on("/download/logs", HTTP_GET, [](AsyncWebServerRequest *request){
         String logs = analyzer.getLogsAsPlainText();
         String timestamp = String(millis());
-        String filename = "atomprobe_logs_" + timestamp + ".txt";
+        String filename = "m5stack-atomprobe_logs_" + timestamp + ".txt";
         
         AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", logs);
         response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
@@ -567,7 +567,7 @@ void setupWebServer() {
     server.on("/download/uart", HTTP_GET, [](AsyncWebServerRequest *request){
         String uartLogs = analyzer.getUartLogsAsPlainText();
         String timestamp = String(millis());
-        String filename = "atomprobe_uart_" + timestamp + ".txt";
+        String filename = "m5stack-atomprobe_uart_" + timestamp + ".txt";
         
         AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", uartLogs);
         response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
@@ -590,11 +590,11 @@ void setupWebServer() {
         
         if (format == "csv") {
             data = analyzer.getDataAsCSV();
-            filename = "atomprobe_capture_" + timestamp + ".csv";
+            filename = "m5stack-atomprobe_capture_" + timestamp + ".csv";
             contentType = "text/csv";
         } else {
             data = analyzer.getDataAsJSON();
-            filename = "atomprobe_capture_" + timestamp + ".json";
+            filename = "m5stack-atomprobe_capture_" + timestamp + ".json";
             contentType = "application/json";
         }
         
@@ -610,7 +610,7 @@ void setupWebServer() {
 }
 
 String getIndexHTML() {
-    return "<!DOCTYPE html><html><head><title>AtomS3 AtomProbe</title><meta charset='UTF-8'>"
+    return "<!DOCTYPE html><html><head><title>M5Stack AtomProbe</title><meta charset='UTF-8'>"
            "<style>" 
            "*{margin:0;padding:0;box-sizing:border-box;}" 
            "body{font-family:'Google Sans',Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:radial-gradient(ellipse at top,#1a1a2e 0%,#16213e 50%,#0f0f1a 100%);color:#e8eaed;min-height:100vh;line-height:1.6;}" 
@@ -646,7 +646,7 @@ String getIndexHTML() {
            "@media (max-width:768px){.grid{grid-template-columns:1fr;}.controls{justify-content:center;}}"
            "</style></head><body>" 
            "<div class='container'>" 
-           "<h1>AtomS3 AtomProbe</h1>"
+           "<h1>M5Stack AtomProbe</h1>"
            "<div class='gemini-card'>" 
            "<h2>🌐 Network Connection</h2>" 
            "<div class='info-grid'>" 
@@ -735,7 +735,7 @@ String getIndexHTML() {
            "<option value='20000000'>20MHz</option><option value='40000000'>40MHz (Max)</option></select></div>"
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>GPIO Pin:</label>" 
            "<select id='logic-gpiopin' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
-           "<option value='1' selected>GPIO1 (AtomS3 Optimized)</option><option value='2'>GPIO2</option><option value='4'>GPIO4</option></select></div>" 
+           "<option value='1' selected>GPIO1 (M5Stack AtomS3)</option><option value='2'>GPIO2</option><option value='4'>GPIO4</option></select></div>"
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>Trigger Mode:</label>" 
            "<select id='logic-trigger' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
            "<option value='0' selected>None</option><option value='1'>Rising Edge</option><option value='2'>Falling Edge</option>" 

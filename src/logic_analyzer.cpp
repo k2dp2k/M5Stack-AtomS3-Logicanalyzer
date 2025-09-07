@@ -68,14 +68,14 @@ LogicAnalyzer::~LogicAnalyzer() {
 }
 
 void LogicAnalyzer::begin() {
-    Serial.println("Initializing AtomProbe GPIO1 Monitor...");
+    Serial.println("Initializing M5Stack AtomProbe GPIO1 Monitor...");
     initializeGPIO1();
     clearBuffer();
     
     // Initialize LittleFS for potential flash storage
     initFlashStorage();
     
-    Serial.printf("AtomProbe GPIO1 Monitor initialized at %d Hz with %d sample buffer\\n", sampleRate, BUFFER_SIZE);
+    Serial.printf("M5Stack AtomProbe GPIO1 Monitor initialized at %d Hz with %d sample buffer\\n", sampleRate, BUFFER_SIZE);
 }
 
 void LogicAnalyzer::initializeGPIO1() {
@@ -267,7 +267,7 @@ bool LogicAnalyzer::isBufferFull() const {
 }
 
 void LogicAnalyzer::printStatus() {
-    Serial.println("=== AtomProbe GPIO1 Monitor Status ===");
+    Serial.println("=== M5Stack AtomProbe GPIO1 Monitor Status ===");
     Serial.printf("Capturing: %s\n", capturing ? "YES" : "NO");
     Serial.printf("Sample Rate: %d Hz\n", sampleRate);
     Serial.printf("GPIO Pin: %d\n", gpio1Pin);
@@ -324,8 +324,8 @@ void LogicAnalyzer::drawStartupLogo() {
     // Product name with modern font
     display.setTextColor(0xFFFF);
     display.setTextSize(1);
-    display.setCursor(31, 95);
-    display.print("AtomS3");
+    display.setCursor(27, 95);
+    display.print("M5Stack");
     display.setCursor(23, 105);
     display.print("AtomProbe");
     
@@ -432,7 +432,7 @@ void LogicAnalyzer::drawWiFiPage() {
         display.print("192.168.4.1");
         display.setTextColor(0xDEFB);
         display.setCursor(15, 90);
-        display.print("AtomS3_AtomProbe");
+        display.print("M5Stack-AtomProbe");
     }
     
     // Page indicator
@@ -628,7 +628,7 @@ void LogicAnalyzer::clearLogs() {
 }
 
 String LogicAnalyzer::getLogsAsPlainText() {
-    String result = "# AtomS3 AtomProbe - Serial Logs\\n";
+    String result = "# M5Stack AtomProbe - Serial Logs\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Total entries: " + String(serialLogBuffer.size()) + "\n\n";
     
@@ -644,7 +644,7 @@ String LogicAnalyzer::getLogsAsPlainText() {
 }
 
 String LogicAnalyzer::getDataAsCSV() {
-    String result = "# AtomS3 AtomProbe - GPIO1 Capture Data (CSV Format)\\n";
+    String result = "# M5Stack AtomProbe - GPIO1 Capture Data (CSV Format)\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Sample Rate: " + String(sampleRate) + " Hz\n";
     result += "# GPIO Pin: " + String(gpio1Pin) + "\n";
