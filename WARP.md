@@ -63,8 +63,8 @@ pio lib list
 **LogicAnalyzer Class** (`src/logic_analyzer.cpp`, `include/logic_analyzer.h`)
 - Handles all signal capture logic using ESP32-S3 GPIO1 exclusively
 - Implements dual functionality: GPIO1 logic analysis + external UART monitoring with Flash storage
-- GPIO1: 16,384 sample buffer with configurable sample rates (1kHz - 10MHz)
-- UART: Intelligent dual-storage system (RAM: fast, Flash: persistent)
+- GPIO1: 16,384 sample buffer with flash storage default and configurable sample rates (1kHz - 10MHz)
+- UART: Flash storage by default with intelligent dual-storage system (RAM: fast, Flash: persistent)
 - Flash Storage: LittleFS integration with up to 100,000 UART entries
 - Automatic storage selection: <5K entries=RAM, >5K entries=Flash
 - Real-time storage migration with seamless data transfer
@@ -78,7 +78,7 @@ pio lib list
 - Embedded HTTP server using ESPAsyncWebServer library
 - REST API endpoints for capture control (`/api/start`, `/api/stop`, `/api/data`, `/api/status`)
 - Real-time status updates via JavaScript polling
-- Single-page application served directly from ESP32
+- Single-page application served directly from ESP32 with 'Logic Data' section for captured samples
 
 **Signal Processing Pipeline**
 1. **Initialization**: Configure GPIO1 as input with pull-up resistor
@@ -109,16 +109,18 @@ pio lib list
 - Internal pull-up resistor on GPIO1
 
 **External UART Monitor with Flash Storage:**
-- **Default pins: GPIO7 (RX), GPIO44 (TX)** - configurable via web interface
+- **Default pins: GPIO7 (RX), TX disabled (-1)** - configurable via web interface
 - **Supported baud rates:** 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600
 - **Data bits:** 7 or 8 bits configurable
 - **Parity:** None, Odd, or Even
 - **Stop bits:** 1 or 2 bits
+- **Duplex modes:** Full-Duplex (RX+TX) and Half-Duplex (single bidirectional pin)
 - **Buffer capacity:** 1,000 - 100,000 entries (configurable)
 - **Storage types:** RAM (fast, <5K entries) + Flash (persistent, >5K entries)
 - **Session duration:** Up to 3.5+ hours with Flash storage
 - **Real-time estimates:** Dynamic time calculations based on baud rate
 - **Pin configuration:** Fully customizable through web GUI with storage controls
+- **Half-Duplex Commands:** Interactive command interface for bidirectional communication
 
 **General Hardware:**
 - 0.85" TFT display (128x128 pixels) with dual-page Gemini-style UI
@@ -145,6 +147,34 @@ const char* password = "YOUR_WIFI_PASSWORD";
 - High-impedance input suitable for most 3.3V logic signals
 - Optimized pin selection for minimum jitter on AtomS3 hardware
 
+### Half-Duplex UART Communication
+
+**Half-Duplex Mode Features:**
+- **Single bidirectional pin**: Uses RX pin for both receiving and transmitting
+- **Automatic pin switching**: Hardware automatically switches between RX and TX modes
+- **Command interface**: Interactive web-based command sending with automatic line endings
+- **Real-time monitoring**: Seamless switching between command transmission and response monitoring
+- **Queue system**: Commands are queued and sent sequentially to prevent collisions
+- **Timeout handling**: Automatic switch back to RX mode after transmission timeout (100ms)
+- **Status indication**: Real-time status shows current mode (RX/TX) and queue status
+
+**Usage Scenarios:**
+- **Single-wire protocols**: RS-485, ModBus RTU, proprietary single-wire communication
+- **Sensor interrogation**: Send commands to sensors and log responses
+- **Device configuration**: Configure remote devices through single-pin interfaces
+- **Protocol debugging**: Interactive testing of bidirectional protocols
+
+**Web Interface Controls:**
+- **Duplex Mode Selection**: Choose between Full-Duplex and Half-Duplex in UART configuration
+- **Command Interface**: Text input field appears automatically when Half-Duplex mode is selected
+- **Send Commands**: Commands are sent with automatic \r\n line endings
+- **Status Display**: Shows transmission status, queue length, and current mode
+- **Response Logging**: All responses are automatically captured and timestamped
+
+**API Endpoints:**
+- `POST /api/uart/send`: Send half-duplex commands programmatically
+- `GET /api/uart/half-duplex-status`: Get current half-duplex status and queue information
+
 ## Important Implementation Details
 
 **Timing Critical Code**: The `process()` method must be called frequently from main loop. Avoid long delays or blocking operations in main loop to maintain sample rate accuracy.
@@ -154,6 +184,8 @@ const char* password = "YOUR_WIFI_PASSWORD";
 **Buffer Overflow**: System automatically stops capture when buffer reaches capacity. Monitor buffer usage via status API to prevent data loss.
 
 **Trigger Logic**: Pre-trigger data not currently supported. Triggering starts capture from trigger point forward. Consider this when analyzing signal timing relationships.
+
+**Half-Duplex Communication**: The system automatically manages bidirectional communication on a single pin. TX mode is time-limited (100ms timeout) to ensure the system returns to RX mode for response monitoring. Commands are queued and processed sequentially to prevent transmission collisions.
 
 ## AtomS3 Display Usage
 

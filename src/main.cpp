@@ -12,8 +12,8 @@
 #endif
 
 // Access Point Configuration
-const char* ap_ssid = "AtomS3-LogicAnalyzer";
-const char* ap_password = "logic123";  // At least 8 characters
+const char* ap_ssid = "M5Stack-AtomProbe";
+const char* ap_password = "probe123";  // At least 8 characters
 
 // WiFi Configuration
 Preferences preferences;
@@ -51,7 +51,7 @@ void setup() {
     AtomS3.begin(cfg);
     display = AtomS3.Display;
     
-    Serial.println("AtomS3 Logic Analyzer Starting...");
+    Serial.println("M5Stack AtomProbe Starting...");
     
     // Initialize logic analyzer
     analyzer.begin();
@@ -62,14 +62,14 @@ void setup() {
     delay(3000);  // Show logo for 3 seconds
 #else
     Serial.begin(115200);
-    Serial.println("ESP32 Logic Analyzer Starting...");
+    Serial.println("ESP32 AtomProbe Starting...");
     
     // Initialize logic analyzer
     analyzer.begin();
 #endif
     
     // Initialize preferences
-    preferences.begin("logic_analyzer", false);
+    preferences.begin("atomprobe", false);
     
     // Pass preferences instance to analyzer
     analyzer.setPreferences(&preferences);
@@ -77,8 +77,12 @@ void setup() {
     // Load saved WiFi credentials
     loadWiFiCredentials();
     
-    // Load UART configuration
+    // Load configurations
+    analyzer.loadLogicConfig();
     analyzer.loadUartConfig();
+    
+    // Ensure proper defaults are set
+    analyzer.addLogEntry("Logic Analyzer initialized with defaults");
     
     // Try to connect to saved WiFi first
     bool connected = false;
@@ -136,7 +140,7 @@ void loop() {
 #endif
     
     // Small delay to prevent watchdog issues
-    delay(1);
+    delay(10);
 }
 
 void setupWebServer() {
@@ -172,7 +176,7 @@ void setupWebServer() {
         doc["sample_rate"] = analyzer.getSampleRate();
         doc["gpio_pin"] = 1;  // GPIO1 only
         doc["buffer_usage"] = analyzer.getBufferUsage();
-        doc["buffer_size"] = 16384;
+        doc["buffer_size"] = analyzer.getCurrentBufferSize();
         doc["wifi_connected"] = wifi_connected;
         doc["ap_mode"] = ap_mode;
         doc["wifi_ssid"] = wifi_connected ? WiFi.SSID() : (ap_mode ? String(ap_ssid) : "");
@@ -213,14 +217,73 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"status\":\"enabled\",\"message\":\"UART monitoring started\"}");
     });
     
-    // UART configuration endpoint
+    // Logic Analyzer configuration endpoints
+    server.on("/api/logic/config", HTTP_GET, [](AsyncWebServerRequest *request){
+        String config = analyzer.getLogicConfigAsJSON();
+        request->send(200, "application/json", config);
+    });
+    
+    server.on("/api/logic/config", HTTP_POST, [](AsyncWebServerRequest *request){
+        uint32_t sampleRate = DEFAULT_SAMPLE_RATE;
+        uint8_t gpioPin = CHANNEL_0_PIN;
+        uint8_t triggerMode = TRIGGER_NONE;
+        uint32_t bufferSize = BUFFER_SIZE;
+        uint8_t preTriggerPercent = 10;
+        
+        if (request->hasParam("sample_rate", true)) {
+            sampleRate = request->getParam("sample_rate", true)->value().toInt();
+        }
+        if (request->hasParam("gpio_pin", true)) {
+            gpioPin = request->getParam("gpio_pin", true)->value().toInt();
+        }
+        if (request->hasParam("trigger_mode", true)) {
+            triggerMode = request->getParam("trigger_mode", true)->value().toInt();
+        }
+        if (request->hasParam("buffer_size", true)) {
+            bufferSize = request->getParam("buffer_size", true)->value().toInt();
+        }
+        if (request->hasParam("pre_trigger_percent", true)) {
+            preTriggerPercent = request->getParam("pre_trigger_percent", true)->value().toInt();
+        }
+        
+        // Handle new parameters for advanced modes
+        uint8_t bufferMode = 1; // Default to Flash (BUFFER_FLASH)
+        uint8_t compression = 0; // No compression
+        uint32_t flashSamples = FLASH_BUFFER_SIZE;
+        
+        if (request->hasParam("buffer_mode", true)) {
+            bufferMode = request->getParam("buffer_mode", true)->value().toInt();
+        }
+        if (request->hasParam("compression", true)) {
+            compression = request->getParam("compression", true)->value().toInt();
+        }
+        if (request->hasParam("flash_samples", true)) {
+            flashSamples = request->getParam("flash_samples", true)->value().toInt();
+        }
+        
+        analyzer.configureLogic(sampleRate, gpioPin, (TriggerMode)triggerMode, bufferSize, preTriggerPercent);
+        
+        // Configure advanced modes
+        analyzer.setBufferMode((BufferMode)bufferMode);
+        if (compression > 0) {
+            analyzer.enableCompression((CompressionType)compression);
+        }
+        if (bufferMode == BUFFER_FLASH || bufferMode == BUFFER_STREAMING) {
+            analyzer.enableFlashBuffering((BufferMode)bufferMode, flashSamples);
+        }
+        
+        request->send(200, "application/json", "{\"status\":\"configured\"}");
+    });
+    
+    // UART configuration endpoint (POST)
     server.on("/api/uart/config", HTTP_POST, [](AsyncWebServerRequest *request){
         uint32_t baudrate = 115200;
         uint8_t dataBits = 8;
         uint8_t parity = 0;
         uint8_t stopBits = 1;
-        uint8_t rxPin = 43;
-        uint8_t txPin = 44;
+        uint8_t rxPin = 7;
+        int8_t txPin = -1;
+        UartDuplexMode duplexMode = UART_FULL_DUPLEX;  // Default to full duplex
         
         if (request->hasParam("baudrate", true)) {
             baudrate = request->getParam("baudrate", true)->value().toInt();
@@ -240,8 +303,12 @@ void setupWebServer() {
         if (request->hasParam("tx_pin", true)) {
             txPin = request->getParam("tx_pin", true)->value().toInt();
         }
+        if (request->hasParam("duplex_mode", true)) {
+            uint8_t duplexValue = request->getParam("duplex_mode", true)->value().toInt();
+            duplexMode = (duplexValue == 1) ? UART_HALF_DUPLEX : UART_FULL_DUPLEX;
+        }
         
-        analyzer.configureUart(baudrate, dataBits, parity, stopBits, rxPin, txPin);
+        analyzer.configureUart(baudrate, dataBits, parity, stopBits, rxPin, txPin, duplexMode);
         request->send(200, "application/json", "{\"status\":\"configured\",\"message\":\"UART settings updated\"}");
     });
     
@@ -343,8 +410,178 @@ void setupWebServer() {
     // Clear buffer data endpoint
     server.on("/api/data/clear", HTTP_POST, [](AsyncWebServerRequest *request){
         analyzer.clearBuffer();
+        analyzer.clearFlashLogicData(); // Also clear flash data
         analyzer.addLogEntry("Capture buffer cleared by user");
         request->send(200, "application/json", "{\"status\":\"cleared\",\"message\":\"Buffer cleared\"}");
+    });
+    
+    // === ADVANCED LOGIC ANALYZER ENDPOINTS ===
+    
+    // Advanced status endpoint
+    server.on("/api/logic/advanced-status", HTTP_GET, [](AsyncWebServerRequest *request){
+        String status = analyzer.getAdvancedStatusJSON();
+        request->send(200, "application/json", status);
+    });
+    
+    // Flash data endpoint
+    server.on("/api/logic/flash-data", HTTP_GET, [](AsyncWebServerRequest *request){
+        uint32_t offset = 0;
+        uint32_t count = 1000;
+        
+        if (request->hasParam("offset")) {
+            offset = request->getParam("offset")->value().toInt();
+        }
+        if (request->hasParam("count")) {
+            count = request->getParam("count")->value().toInt();
+        }
+        
+        String flashData = analyzer.getFlashDataAsJSON(offset, count);
+        request->send(200, "application/json", flashData);
+    });
+    
+    // Set buffer mode endpoint
+    server.on("/api/logic/buffer-mode", HTTP_POST, [](AsyncWebServerRequest *request){
+        uint8_t mode = 0; // Default RAM
+        uint32_t flashSamples = FLASH_BUFFER_SIZE;
+        
+        if (request->hasParam("mode", true)) {
+            mode = request->getParam("mode", true)->value().toInt();
+        }
+        if (request->hasParam("flash_samples", true)) {
+            flashSamples = request->getParam("flash_samples", true)->value().toInt();
+        }
+        
+        analyzer.setBufferMode((BufferMode)mode);
+        if (mode == BUFFER_FLASH || mode == BUFFER_STREAMING) {
+            analyzer.enableFlashBuffering((BufferMode)mode, flashSamples);
+        }
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["buffer_mode"] = analyzer.getBufferModeString();
+        doc["flash_samples"] = flashSamples;
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Enable compression endpoint
+    server.on("/api/logic/compression", HTTP_POST, [](AsyncWebServerRequest *request){
+        uint8_t compressionType = 0; // No compression
+        
+        if (request->hasParam("type", true)) {
+            compressionType = request->getParam("type", true)->value().toInt();
+        }
+        
+        analyzer.enableCompression((CompressionType)compressionType);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["compression_type"] = compressionType;
+        doc["compression_name"] = (compressionType == 1 ? "RLE" : 
+                                   compressionType == 2 ? "Delta" : 
+                                   compressionType == 3 ? "Hybrid" : "None");
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Streaming control endpoint
+    server.on("/api/logic/streaming", HTTP_POST, [](AsyncWebServerRequest *request){
+        bool enable = false;
+        
+        if (request->hasParam("enable", true)) {
+            enable = (request->getParam("enable", true)->value() == "true");
+        }
+        
+        analyzer.enableStreamingMode(enable);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["streaming_active"] = enable;
+        doc["streaming_count"] = analyzer.getStreamingSampleCount();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Flash storage stats endpoint
+    server.on("/api/logic/flash-stats", HTTP_GET, [](AsyncWebServerRequest *request){
+        JsonDocument doc;
+        doc["flash_samples"] = analyzer.getFlashSampleCount();
+        doc["flash_storage_mb"] = analyzer.getFlashStorageUsedMB();
+        doc["compression_ratio"] = analyzer.getCompressionRatio();
+        doc["buffer_mode"] = analyzer.getBufferModeString();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // === HALF-DUPLEX UART ENDPOINTS ===
+    
+    // Send half-duplex command endpoint
+    server.on("/api/uart/send", HTTP_POST, [](AsyncWebServerRequest *request){
+        String command = "";
+        
+        if (request->hasParam("command", true)) {
+            command = request->getParam("command", true)->value();
+        }
+        
+        if (command.length() == 0) {
+            request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Command is required\"}");
+            return;
+        }
+        
+        bool success = analyzer.sendHalfDuplexCommand(command);
+        
+        JsonDocument doc;
+        doc["status"] = success ? "queued" : "error";
+        doc["command"] = command;
+        doc["message"] = success ? "Command queued for transmission" : "Failed to queue command (half-duplex busy)";
+        doc["is_half_duplex"] = analyzer.isHalfDuplexMode();
+        doc["busy"] = analyzer.isHalfDuplexBusy();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(success ? 200 : 409, "application/json", response);  // 409 = Conflict if busy
+    });
+    
+    // Get half-duplex status endpoint
+    server.on("/api/uart/half-duplex-status", HTTP_GET, [](AsyncWebServerRequest *request){
+        String status = analyzer.getHalfDuplexStatus();
+        request->send(200, "application/json", status);
+    });
+    
+    // === DUAL-MODE MONITORING ENDPOINTS ===
+    
+    // Enable/disable dual-mode monitoring
+    server.on("/api/dual-mode", HTTP_POST, [](AsyncWebServerRequest *request){
+        bool enable = false;
+        
+        if (request->hasParam("enable", true)) {
+            enable = (request->getParam("enable", true)->value() == "true");
+        }
+        
+        analyzer.enableDualMode(enable);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["dual_mode_active"] = analyzer.isDualModeActive();
+        doc["compatible"] = enable ? "pins match" : "disabled";
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Get dual-mode status
+    server.on("/api/dual-mode/status", HTTP_GET, [](AsyncWebServerRequest *request){
+        String status = analyzer.getDualModeStatus();
+        request->send(200, "application/json", status);
     });
     
     // WiFi configuration endpoint
@@ -385,7 +622,7 @@ void setupWebServer() {
     server.on("/download/logs", HTTP_GET, [](AsyncWebServerRequest *request){
         String logs = analyzer.getLogsAsPlainText();
         String timestamp = String(millis());
-        String filename = "atoms3_logs_" + timestamp + ".txt";
+        String filename = "m5stack-atomprobe_logs_" + timestamp + ".txt";
         
         AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", logs);
         response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
@@ -398,7 +635,7 @@ void setupWebServer() {
     server.on("/download/uart", HTTP_GET, [](AsyncWebServerRequest *request){
         String uartLogs = analyzer.getUartLogsAsPlainText();
         String timestamp = String(millis());
-        String filename = "atoms3_uart_" + timestamp + ".txt";
+        String filename = "m5stack-atomprobe_uart_" + timestamp + ".txt";
         
         AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", uartLogs);
         response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
@@ -421,11 +658,11 @@ void setupWebServer() {
         
         if (format == "csv") {
             data = analyzer.getDataAsCSV();
-            filename = "atoms3_capture_" + timestamp + ".csv";
+            filename = "m5stack-atomprobe_capture_" + timestamp + ".csv";
             contentType = "text/csv";
         } else {
             data = analyzer.getDataAsJSON();
-            filename = "atoms3_capture_" + timestamp + ".json";
+            filename = "m5stack-atomprobe_capture_" + timestamp + ".json";
             contentType = "application/json";
         }
         
@@ -441,7 +678,7 @@ void setupWebServer() {
 }
 
 String getIndexHTML() {
-    return "<!DOCTYPE html><html><head><title>AtomS3 Logic Analyzer</title><meta charset='UTF-8'>" 
+    return "<!DOCTYPE html><html><head><title>M5Stack AtomProbe</title><meta charset='UTF-8'>"
            "<style>" 
            "*{margin:0;padding:0;box-sizing:border-box;}" 
            "body{font-family:'Google Sans',Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:radial-gradient(ellipse at top,#1a1a2e 0%,#16213e 50%,#0f0f1a 100%);color:#e8eaed;min-height:100vh;line-height:1.6;}" 
@@ -477,7 +714,7 @@ String getIndexHTML() {
            "@media (max-width:768px){.grid{grid-template-columns:1fr;}.controls{justify-content:center;}}"
            "</style></head><body>" 
            "<div class='container'>" 
-           "<h1>AtomS3 Logic Analyzer</h1>" 
+           "<h1>M5Stack AtomProbe</h1>"
            "<div class='gemini-card'>" 
            "<h2>🌐 Network Connection</h2>" 
            "<div class='info-grid'>" 
@@ -518,7 +755,10 @@ String getIndexHTML() {
            "<input id='uart-rxpin' type='number' value='7' min='0' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>TX Pin (-1=disabled):</label>" 
            "<input id='uart-txpin' type='number' value='-1' min='-1' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
-           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Duplex Mode:</label>" 
+           "<select id='uart-duplex' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='0' selected>Full Duplex (RX + TX)</option><option value='1'>Half Duplex (Single Wire)</option></select></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>"
            "<select id='uart-buffersize' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;' onchange='updateBufferTimeEstimates()'>" 
            "<option value='1000'>1,000 entries</option>" 
            "<option value='5000'>5,000 entries</option>" 
@@ -526,15 +766,13 @@ String getIndexHTML() {
            "<option value='25000'>25,000 entries</option>" 
            "<option value='50000'>50,000 entries</option>" 
            "<option value='100000'>100,000 entries</option>" 
-           "<option value='250000'>250,000 entries</option>" 
-           "<option value='500000'>500,000 entries</option>" 
-           "<option value='1000000'>1,000,000 entries</option></select></div>"
+           "<option value='200000'>200,000 entries (Shared Flash)</option>" 
+           "<option value='300000'>300,000 entries</option>" 
+           "<option value='400000'>400,000 entries (Max Flash)</option></select></div>"
            "<div style='margin:10px 5px;padding:8px;background:rgba(79,195,247,0.1);border-radius:4px;font-size:12px;color:#4fc3f7;'>" 
-           "<div id='buffer-time-estimate'>📊 Estimated buffer time at current baud rate...</div></div>"
-           "</div>" 
+           "<div id='uart-time-estimate'>📊 Estimated duration...</div></div>" 
            "<div style='margin-top:15px;'>" 
-           "<button class='gemini-btn' onclick='saveUartConfig()'>✅ Apply Configuration</button>" 
-           "<button class='gemini-btn secondary' onclick='saveBufferSize()' style='margin-left:10px;'>💾 Set Buffer Size</button></div>" 
+           "<button class='gemini-btn' onclick='saveUartConfig()'>✅ Apply Configuration</button></div>"
            "</div>" 
            "<div id='uart-status' class='info-grid' style='margin:10px 0;'>" 
            "<div class='info-item'><strong>Status:</strong> <span id='uart-monitoring-status'>Disabled</span></div>" 
@@ -542,27 +780,78 @@ String getIndexHTML() {
            "<div class='info-item'><strong>Pins:</strong> <span id='uart-pins'>RX:7 TX:disabled</span></div>" 
            "<div class='info-item'><strong>Bytes:</strong> <span id='uart-bytes'>RX:0 TX:0</span></div>" 
            "<div class='info-item'><strong>Buffer:</strong> <span id='uart-buffer-info'>0/10000 (0KB)</span></div>" 
-           "<div class='info-item'><strong>Storage:</strong> <span id='uart-storage-type'>RAM</span> <button class='gemini-btn secondary' onclick='toggleFlashStorage()' id='flash-toggle' style='margin-left:8px;padding:4px 8px;font-size:11px;'>💾 Flash</button></div>" 
+           "<div class='info-item'><strong>Storage:</strong> <span id='uart-storage-type'>Flash</span> <button class='gemini-btn secondary' onclick='toggleFlashStorage()' id='flash-toggle' style='margin-left:8px;padding:4px 8px;font-size:11px;background:linear-gradient(135deg,#4ecdc4 0%,#44a08d 100%);'>💽 RAM</button></div>"
            "</div>"
-           "<div id='uart-logs' class='gemini-mono'>UART monitoring disabled...</div>" 
            "</div>" 
-           "<div class='gemini-card'>" 
-           "<h2>⚡ GPIO1 High-Performance Analysis</h2>" 
-           "<div class='info-grid'>" 
-           "<div class='info-item'><strong>Channel:</strong> GPIO1 Only</div>" 
-           "<div class='info-item'><strong>Buffer:</strong> 16,384 samples</div>" 
-           "<div class='info-item'><strong>Max Rate:</strong> 10MHz</div>" 
+           "<div id='half-duplex-panel' style='display:none;margin:15px 0;padding:20px;background:rgba(255,152,0,0.1);border-radius:12px;border:1px solid rgba(255,152,0,0.2);'>" 
+           "<h4 style='margin-bottom:15px;color:#ff9800;'>📡 Half-Duplex Command Interface</h4>" 
+           "<div style='display:flex;align-items:center;gap:12px;'>" 
+           "<input id='half-duplex-command' type='text' placeholder='Enter command to send...' style='flex:1;padding:12px;border-radius:8px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;font-family:monospace;font-size:14px;'>" 
+           "<button class='gemini-btn success' onclick='sendHalfDuplexCommand()' id='send-command-btn'>📤 Send</button>" 
+           "</div>" 
+           "<div style='margin-top:12px;font-size:12px;color:#ff9800;'>" 
+           "<div>💡 Commands are sent with automatic line endings (\\r\\n)</div>" 
+           "<div id='half-duplex-status' style='margin-top:8px;font-weight:bold;'>Status: Ready</div>" 
+           "</div></div>"
+           "<div id='uart-logs' class='gemini-mono'>UART monitoring disabled...</div>" 
            "</div>"
+           "<div class='gemini-card'>" 
+           "<h2>⚡ GPIO High-Performance Analysis</h2>"
            "<div class='controls'>" 
            "<button class='gemini-btn success' onclick='toggleCapture()' id='capture-toggle'>▶️ Start Capture</button>" 
+           "<button class='gemini-btn secondary' onclick='toggleLogicConfig()'>⚙️ Configure</button>" 
            "<button class='gemini-btn' onclick='getData()'>📊 Get Data</button>" 
+           "<button class='gemini-btn' onclick='toggleDualMode()' id='dual-mode-toggle' style='background:linear-gradient(135deg,#ff9800 0%,#f57c00 100%);'>🔗 Dual Mode</button>" 
+           "</div>"
+           "<div id='logic-config' style='display:none;margin:15px 0;padding:20px;background:rgba(79,195,247,0.1);border-radius:12px;'>" 
+           "<h4 style='margin-bottom:15px;color:#4fc3f7;'>⚙️ Logic Analyzer Configuration</h4>" 
+           "<div class='info-grid'>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Sample Rate (Hz):</label>" 
+           "<select id='logic-samplerate' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;' onchange='updateLogicTimeEstimates()'>" 
+           "<option value='10'>10Hz (Ultra-Low)</option><option value='20'>20Hz</option><option value='40'>40Hz</option>" 
+           "<option value='80'>80Hz</option><option value='100'>100Hz</option><option value='200'>200Hz</option>" 
+           "<option value='400'>400Hz</option><option value='1000'>1kHz</option><option value='10000'>10kHz</option>" 
+           "<option value='100000'>100kHz</option><option value='1000000' selected>1MHz</option>" 
+           "<option value='2000000'>2MHz</option><option value='5000000'>5MHz</option><option value='10000000'>10MHz</option>" 
+           "<option value='20000000'>20MHz</option><option value='40000000'>40MHz (Max)</option></select></div>"
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>GPIO Pin:</label>" 
+           "<select id='logic-gpiopin' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='1' selected>GPIO1 (AtomS3 Optimized)</option><option value='2'>GPIO2</option><option value='4'>GPIO4</option><option value='7'>GPIO7 (Dual Mode with UART)</option></select></div>"
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Trigger Mode:</label>" 
+           "<select id='logic-trigger' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='0' selected>None</option><option value='1'>Rising Edge</option><option value='2'>Falling Edge</option>" 
+           "<option value='3'>Both Edges</option><option value='4'>High Level</option><option value='5'>Low Level</option></select></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>" 
+           "<select id='logic-buffersize' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;' onchange='updateLogicTimeEstimates()'>" 
+           "<option value='4096'>4,096 samples (20KB - RAM)</option><option value='8192'>8,192 samples (40KB - RAM)</option>" 
+           "<option value='16384'>16,384 samples (80KB - RAM)</option><option value='100000'>100K samples (500KB - Flash)</option>" 
+           "<option value='200000'>200K samples (1MB - Flash)</option><option value='400000' selected>400K samples (2MB - Flash, Shared)</option>" 
+           "<option value='600000'>600K samples (3MB - Flash)</option><option value='800000'>800K samples (4MB - Flash, Max)</option></select></div>"
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Pre-Trigger (%):</label>" 
+           "<input id='logic-pretrigger' type='number' value='10' min='0' max='90' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>"
            "</div>" 
+           "<div style='margin:10px 5px;padding:8px;background:rgba(79,195,247,0.1);border-radius:4px;font-size:12px;color:#4fc3f7;'>" 
+           "<div id='logic-time-estimate'>📊 Estimated buffer duration...</div>" 
+           "<div style='font-size:11px;color:#ff9800;margin-top:4px;'>⚠️ Flash shared with UART (6MB total: 4MB Logic + 2MB UART)</div></div>" 
+           "<div style='margin-top:15px;'>" 
+           "<button class='gemini-btn' onclick='saveLogicConfig()'>✅ Apply Configuration</button></div>" 
+           "</div>"
+           "<div id='logic-status' class='info-grid' style='margin:10px 0;'>" 
+           "<div class='info-item'><strong>Channel:</strong> <span id='logic-current-channel'>GPIO1</span></div>" 
+           "<div class='info-item'><strong>Sample Rate:</strong> <span id='logic-current-rate'>1MHz</span></div>" 
+           "<div class='info-item'><strong>Trigger:</strong> <span id='logic-current-trigger'>None</span></div>" 
+           "<div class='info-item'><strong>Buffer:</strong> <span id='logic-buffer-info'>1,000,000 samples</span></div>" 
+           "<div class='info-item'><strong>Duration:</strong> <span id='logic-duration'>1.0s</span></div>" 
+           "<div class='info-item'><strong>Usage:</strong> <span id='logic-buffer-usage'>0/1,000,000 (0%)</span></div>" 
+           "<div class='info-item'><strong>Storage:</strong> <span id='logic-storage-type'>Flash</span> <span id='logic-storage-size'>(2MB)</span></div>" 
+           "<div class='info-item'><strong>Dual Mode:</strong> <span id='dual-mode-status'>Disabled</span> <span id='dual-mode-info'></span></div>" 
+           "</div>"
            "<div id='status' class='gemini-status'><span class='gemini-indicator ready'></span>Ready</div>" 
-           "<div id='gpio-status' class='gpio-status'>🔌 GPIO1: High-Performance Mode</div>"
+           "<div id='gpio-status' class='gpio-status'>🔌 GPIO: High-Performance Mode</div>"
            "</div>" 
            "<div class='grid'>" 
            "<div class='gemini-card'>" 
-           "<h3>📊 Capture Data</h3>" 
+           "<h3>📊 Logic Data</h3>"
            "<div class='controls'>" 
            "<button class='gemini-btn secondary' onclick='clearData()'>🗑️ Clear Data</button>" 
            "<button class='gemini-btn' onclick='downloadData(\"json\")'>📥 Download JSON</button>" 
@@ -594,12 +883,13 @@ String getIndexHTML() {
            "function enableUartMonitoring(){fetch('/api/uart/enable',{method:'POST'}).then(()=>{setTimeout(loadUartLogs,500);updateAll();});}" 
            "function disableUartMonitoring(){fetch('/api/uart/disable',{method:'POST'}).then(()=>{setTimeout(loadUartLogs,500);updateAll();});}"
            "function clearUartLogs(){fetch('/api/uart/clear',{method:'POST'}).then(()=>loadUartLogs());}" 
-           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits;document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;document.getElementById('uart-buffer-info').textContent=d.count+'/'+d.max_entries+' ('+(d.memory_usage/1024).toFixed(1)+'KB)';document.getElementById('uart-memory-usage').textContent=(d.memory_usage/1024).toFixed(1)+'KB used';document.getElementById('uart-storage-type').textContent=d.storage_type||'RAM';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';const toggleBtn=document.getElementById('uart-toggle');if(d.monitoring_enabled){toggleBtn.textContent='⏹️ Stop UART';toggleBtn.className='gemini-btn danger';}else{toggleBtn.textContent='▶️ Start UART';toggleBtn.className='gemini-btn success';}updateStorageDisplay();}).catch(e=>console.error('UART logs error:',e));}"
+           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits+' ('+(config.duplex_string||'Full')+')';document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;document.getElementById('uart-buffer-info').textContent=d.count+'/'+d.max_entries+' ('+(d.memory_usage/1024).toFixed(1)+'KB)';document.getElementById('uart-storage-type').textContent=d.storage_type||'Flash';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';const toggleBtn=document.getElementById('uart-toggle');if(d.monitoring_enabled){toggleBtn.textContent='⏹️ Stop UART';toggleBtn.className='gemini-btn danger';}else{toggleBtn.textContent='▶️ Start UART';toggleBtn.className='gemini-btn success';}updateStorageDisplay();const panel=document.getElementById('half-duplex-panel');if(config.duplex_mode===1){panel.style.display='block';}else{panel.style.display='none';}}).catch(e=>console.error('UART logs error:',e));}"
            "function copyUartData(){navigator.clipboard.writeText(document.getElementById('uart-logs').innerText).then(()=>alert('UART data copied to clipboard!')).catch(e=>alert('Copy failed: '+e.message));}" 
            "function downloadUartLogs(){window.open('/download/uart','_blank');}" 
            "function toggleUartConfig(){const config=document.getElementById('uart-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadUartConfig();};}"
-           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;}).catch(e=>console.error('UART config load error:',e));}"
-           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}" 
+           "function checkAndUpdateHalfDuplexPanel(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{const panel=document.getElementById('half-duplex-panel');if(d.duplex_mode===1){panel.style.display='block';}else{panel.style.display='none';}}).catch(e=>console.error('Half-duplex panel check error:',e));}"
+           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;document.getElementById('uart-duplex').value=d.duplex_mode||0;}).catch(e=>console.error('UART config load error:',e));}"
+           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);formData.append('duplex_mode',document.getElementById('uart-duplex').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';setTimeout(checkAndUpdateHalfDuplexPanel,500);});}"
            "function saveBufferSize(){const formData=new FormData();formData.append('size',document.getElementById('uart-buffersize').value);fetch('/api/uart/buffersize',{method:'POST',body:formData}).then(r=>r.json()).then(d=>{alert('Buffer size updated to '+d.new_size+' entries');loadUartLogs();updateBufferTimeEstimates();});}"
            "function updateBufferTimeEstimates(){" 
            "const baudrate=parseInt(document.getElementById('uart-baudrate').value);" 
@@ -613,10 +903,15 @@ String getIndexHTML() {
            "else if(timeInSeconds<3600){timeStr=Math.round(timeInSeconds/60)+'min';}" 
            "else{timeStr=Math.round(timeInSeconds/3600*10)/10+'h';}" 
            "const storageUsage=Math.round(bufferSize*avgBytesPerEntry/1024);" 
-           "document.getElementById('buffer-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' entries \\u2248 '+timeStr+' @ '+baudrate+' baud (\\u2248'+storageUsage+'KB)';"
+           "document.getElementById('uart-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' entries \\u2248 '+timeStr+' @ '+baudrate+' baud (\\u2248'+storageUsage+'KB)';"
            "}" 
-           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;updateBufferTimeEstimates();}).catch(e=>console.error('UART config load error:',e));}" 
-           "function toggleFlashStorage(){" 
+           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;document.getElementById('uart-duplex').value=d.duplex_mode||0;updateBufferTimeEstimates();updateHalfDuplexPanel();}).catch(e=>console.error('UART config load error:',e));}"
+           "function toggleLogicConfig(){const config=document.getElementById('logic-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadLogicConfig();};}" 
+           "function loadLogicConfig(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-samplerate').value=d.sample_rate||1000000;document.getElementById('logic-gpiopin').value=d.gpio_pin||1;document.getElementById('logic-trigger').value=d.trigger_mode||0;document.getElementById('logic-buffersize').value=d.buffer_size||16384;document.getElementById('logic-pretrigger').value=d.pre_trigger_percent||10;updateLogicTimeEstimates();}).catch(e=>console.error('Logic config load error:',e));}"
+           "function saveLogicConfig(){const formData=new FormData();formData.append('sample_rate',document.getElementById('logic-samplerate').value);formData.append('gpio_pin',document.getElementById('logic-gpiopin').value);formData.append('trigger_mode',document.getElementById('logic-trigger').value);formData.append('buffer_size',document.getElementById('logic-buffersize').value);formData.append('pre_trigger_percent',document.getElementById('logic-pretrigger').value);fetch('/api/logic/config',{method:'POST',body:formData}).then(()=>{loadLogicConfig();updateLogicStatus();document.getElementById('logic-config').style.display='none';alert('Logic Analyzer configuration saved!');});}"
+           "function updateLogicTimeEstimates(){const sampleRate=parseInt(document.getElementById('logic-samplerate').value);const bufferSize=parseInt(document.getElementById('logic-buffersize').value);const durationSeconds=bufferSize/sampleRate;let timeStr='';if(durationSeconds<0.001){timeStr=Math.round(durationSeconds*1000000)+'μs';}else if(durationSeconds<1){timeStr=Math.round(durationSeconds*1000*10)/10+'ms';}else if(durationSeconds<60){timeStr=Math.round(durationSeconds*10)/10+'s';}else if(durationSeconds<3600){timeStr=Math.round(durationSeconds/60*10)/10+'min';}else if(durationSeconds<86400){timeStr=Math.round(durationSeconds/3600*10)/10+'h';}else{timeStr=Math.round(durationSeconds/86400*10)/10+'d';}document.getElementById('logic-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' samples ≈ '+timeStr+' @ '+(sampleRate>=1000000?Math.round(sampleRate/1000000*10)/10+'MHz':sampleRate>=1000?Math.round(sampleRate/1000)+'kHz':sampleRate+'Hz');}"
+           "function updateLogicStatus(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-current-channel').textContent='GPIO'+d.gpio_pin;document.getElementById('logic-current-rate').textContent=d.sample_rate>=1000000?Math.round(d.sample_rate/1000000*10)/10+'MHz':d.sample_rate>=1000?Math.round(d.sample_rate/1000)+'kHz':d.sample_rate+'Hz';document.getElementById('logic-current-trigger').textContent=d.trigger_mode_string;document.getElementById('logic-buffer-info').textContent=d.buffer_size.toLocaleString()+' samples';const duration=d.buffer_duration_seconds;let durationStr='';if(duration<0.001){durationStr=Math.round(duration*1000000)+'μs';}else if(duration<1){durationStr=Math.round(duration*1000*10)/10+'ms';}else if(duration<60){durationStr=Math.round(duration*10)/10+'s';}else if(duration<3600){durationStr=Math.round(duration/60*10)/10+'min';}else if(duration<86400){durationStr=Math.round(duration/3600*10)/10+'h';}else{durationStr=Math.round(duration/86400*10)/10+'d';}document.getElementById('logic-duration').textContent=durationStr;});fetch('/api/status').then(r=>r.json()).then(d=>{const usage=d.buffer_usage||0;const total=d.buffer_size||1000000;const percent=Math.round((usage/total)*100);document.getElementById('logic-buffer-usage').textContent=usage.toLocaleString()+'/'+total.toLocaleString()+' ('+percent+'%)';const storageType=total>50000?'Flash':'RAM';const storageMB=(total*5/1024/1024).toFixed(1);document.getElementById('logic-storage-type').textContent=storageType;document.getElementById('logic-storage-size').textContent='('+storageMB+'MB)';}).catch(e=>console.error('Logic status update error:',e));}"
+           "function toggleFlashStorage(){"
            "fetch('/api/uart/storage').then(r=>r.json()).then(d=>{" 
            "const newState = !d.flash_enabled;" 
            "const formData=new FormData();formData.append('enable',newState.toString());" 
@@ -636,12 +931,17 @@ String getIndexHTML() {
            "function updateAll(){" 
            "fetch('/api/status').then(r=>r.json()).then(d=>{" 
            "const indicator=d.capturing?'<span class=\"gemini-indicator capturing\"></span>':'<span class=\"gemini-indicator ready\"></span>';" 
-           "document.getElementById('status').innerHTML=indicator+(d.capturing?'Capturing':'Ready')+' | Rate: '+d.sample_rate+'Hz | Buffer: '+d.buffer_usage+'/'+d.buffer_size+' | GPIO1 Only';" 
+           "document.getElementById('status').innerHTML=indicator+(d.capturing?'Capturing':'Ready')+' | Rate: '+d.sample_rate+'Hz | Buffer: '+d.buffer_usage+'/'+d.buffer_size+' | GPIO Only';"
            "document.getElementById('network-mode').textContent = d.ap_mode ? 'Access Point' : (d.wifi_connected ? 'WiFi Client' : 'Disconnected');" 
            "document.getElementById('network-name').textContent = d.wifi_ssid || 'None';" 
            "document.getElementById('network-ip').textContent = d.ip_address || 'None';" 
            "const captureBtn=document.getElementById('capture-toggle');if(d.capturing){captureBtn.textContent='⏹️ Stop Capture';captureBtn.className='gemini-btn danger';}else{captureBtn.textContent='▶️ Start Capture';captureBtn.className='gemini-btn success';}" 
-           "});" 
+           "}).catch(e=>console.error('Status update error:',e));" 
+           "updateUartStatus();" 
+           "loadUartLogs();" 
+           "updateLogicStatus();" 
+           "loadLogs();}"
+           "function updateUartStatus(){" 
            "fetch('/api/uart/logs').then(r=>r.json()).then(d=>{" 
            "const uartToggleBtn=document.getElementById('uart-toggle');" 
            "if(d.monitoring_enabled){" 
@@ -650,10 +950,70 @@ String getIndexHTML() {
            "}else{" 
            "uartToggleBtn.textContent='▶️ Start UART';" 
            "uartToggleBtn.className='gemini-btn success';" 
-           "}}).catch(e=>console.error('UART toggle update error:',e));" 
-           "loadLogs();loadUartLogs();}"
-           "setInterval(updateAll,2000);updateAll();setInterval(loadUartLogs,3000);" 
-           "setTimeout(updateBufferTimeEstimates,1000);"
+           "}}).catch(e=>console.error('UART status error:',e));" 
+           "}"
+           "function sendHalfDuplexCommand(){" 
+           "const command=document.getElementById('half-duplex-command').value.trim();" 
+           "if(!command){alert('Please enter a command to send');return;}" 
+           "const statusDiv=document.getElementById('half-duplex-status');" 
+           "const sendBtn=document.getElementById('send-command-btn');" 
+           "statusDiv.textContent='Sending command...';" 
+           "sendBtn.disabled=true;" 
+           "const formData=new FormData();" 
+           "formData.append('command',command);" 
+           "fetch('/api/uart/send',{method:'POST',body:formData})" 
+           ".then(r=>r.json())" 
+           ".then(d=>{" 
+           "if(d.status==='queued'){" 
+           "statusDiv.textContent='Command sent: '+command;" 
+           "statusDiv.style.color='#4caf50';" 
+           "document.getElementById('half-duplex-command').value='';" 
+           "setTimeout(()=>{statusDiv.textContent='Status: Ready';statusDiv.style.color='#ff9800';},3000);" 
+           "}else{" 
+           "statusDiv.textContent='Error: '+d.message;" 
+           "statusDiv.style.color='#f44336';" 
+           "setTimeout(()=>{statusDiv.textContent='Status: Ready';statusDiv.style.color='#ff9800';},3000);" 
+           "}" 
+           "sendBtn.disabled=false;" 
+           "}).catch(e=>{" 
+           "statusDiv.textContent='Error: '+e.message;" 
+           "statusDiv.style.color='#f44336';" 
+           "sendBtn.disabled=false;" 
+           "setTimeout(()=>{statusDiv.textContent='Status: Ready';statusDiv.style.color='#ff9800';},3000);" 
+           "});}" 
+           "function updateHalfDuplexPanel(){" 
+           "const duplexMode=document.getElementById('uart-duplex').value;" 
+           "const panel=document.getElementById('half-duplex-panel');" 
+           "if(duplexMode==='1'){" 
+           "panel.style.display='block';" 
+           "}else{" 
+           "panel.style.display='none';" 
+           "}}" 
+           "document.getElementById('uart-duplex').addEventListener('change',updateHalfDuplexPanel);" 
+           "document.getElementById('half-duplex-command').addEventListener('keypress',function(e){" 
+           "if(e.key==='Enter'){sendHalfDuplexCommand();}" 
+           "});" 
+           "function toggleDualMode(){" 
+           "fetch('/api/dual-mode/status').then(r=>r.json()).then(d=>{" 
+           "const newState = !d.dual_mode_active;" 
+           "const formData=new FormData();formData.append('enable',newState.toString());" 
+           "fetch('/api/dual-mode',{method:'POST',body:formData}).then(r=>r.json()).then(result=>{" 
+           "updateDualModeDisplay();" 
+           "alert('Dual Mode '+(result.dual_mode_active?'Enabled':'Disabled')+': UART + Logic on same pin');" 
+           "}).catch(e=>console.error('Dual mode toggle error:',e));" 
+           "}).catch(e=>console.error('Dual mode status error:',e));}" 
+           "function updateDualModeDisplay(){" 
+           "fetch('/api/dual-mode/status').then(r=>r.json()).then(d=>{" 
+           "document.getElementById('dual-mode-status').textContent=d.dual_mode_active?'Active':'Disabled';" 
+           "document.getElementById('dual-mode-info').textContent=d.dual_mode_active?'(GPIO'+d.logic_pin+')':'';" 
+           "const dualBtn=document.getElementById('dual-mode-toggle');" 
+           "dualBtn.textContent=d.dual_mode_active?'🔗 Dual ON':'🔗 Dual Mode';" 
+           "dualBtn.style.background=d.dual_mode_active?'linear-gradient(135deg,#4caf50 0%,#388e3c 100%)':'linear-gradient(135deg,#ff9800 0%,#f57c00 100%)';" 
+           "}).catch(e=>console.error('Dual mode display error:',e));}" 
+           "setInterval(updateAll,3000);updateAll();" 
+           "setInterval(loadUartLogs,4000);" 
+           "setTimeout(updateBufferTimeEstimates,1000);" 
+           "setTimeout(checkAndUpdateHalfDuplexPanel,1500);"
            "</script></body></html>";
 }
 

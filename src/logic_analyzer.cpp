@@ -1,8 +1,109 @@
 #include "logic_analyzer.h"
 #include <WiFi.h>
 #include <cmath>
+#include <soc/gpio_reg.h>  // For direct GPIO register access
 #ifdef ATOMS3_BUILD
     extern M5GFX& display;
+// ===== DUAL-MODE MONITORING (UART + LOGIC ON SAME PIN) =====
+
+void LogicAnalyzer::enableDualMode(bool enable) {
+    if (enable && isDualModeCompatible()) {
+        dualModeActive = true;
+        addLogEntry("Dual-mode activated: UART + Logic on GPIO" + String(logicConfig.gpioPin));
+        Serial.println("Dual-mode monitoring enabled: UART + Logic analysis simultaneously");
+    } else if (enable && !isDualModeCompatible()) {
+        dualModeActive = false;
+        addLogEntry("Dual-mode failed: Pin conflict - UART on GPIO" + String(uartConfig.rxPin) + ", Logic on GPIO" + String(logicConfig.gpioPin));
+        Serial.println("Dual-mode incompatible: Different pins configured");
+    } else {
+        dualModeActive = false;
+        addLogEntry("Dual-mode deactivated");
+        Serial.println("Dual-mode monitoring disabled");
+    }
+}
+
+bool LogicAnalyzer::isDualModeActive() const {
+    return dualModeActive;
+}
+
+bool LogicAnalyzer::isDualModeCompatible() const {
+    // Check if UART RX pin matches Logic GPIO pin
+    return (uartConfig.rxPin == logicConfig.gpioPin);
+}
+
+void LogicAnalyzer::processDualModeData(bool currentState) {
+    // Process Logic Analyzer data
+    if (triggerMode != TRIGGER_NONE && !triggerArmed) {
+        if (checkTrigger(currentState)) {
+            triggerArmed = true;
+            addLogEntry("Dual-mode trigger activated on GPIO" + String(logicConfig.gpioPin));
+            Serial.println("Dual-mode trigger activated!");
+        }
+        lastState = currentState;
+        // Don't return - still process UART data
+    }
+    
+    // Add Logic sample
+    if (triggerArmed) {
+        addSample(currentState);
+    }
+    
+    // Process UART data simultaneously
+    if (uartSerial && uartSerial->available()) {
+        while (uartSerial->available()) {
+            char c = uartSerial->read();
+            uartBytesReceived++;
+            lastUartActivity = millis();
+            
+            if (c == '\n' || c == '\r') {
+                if (uartRxBuffer.length() > 0) {
+                    addUartEntry(uartRxBuffer + " [DUAL]", true);  // Mark as dual-mode data
+                    uartRxBuffer = "";
+                }
+            } else if (c >= 32 && c <= 126) {
+                uartRxBuffer += c;
+                if (uartRxBuffer.length() > UART_MSG_MAX_LENGTH) {
+                    addUartEntry(uartRxBuffer + " [DUAL-TRUNC]", true);
+                    uartRxBuffer = "";
+                }
+            } else {
+                uartRxBuffer += "[0x" + String(c, HEX) + "]";
+            }
+        }
+    }
+    
+    // Handle incomplete UART lines
+    if (uartRxBuffer.length() > 0 && (millis() - lastUartActivity) > 1000) {
+        addUartEntry(uartRxBuffer + " [DUAL-TIMEOUT]", true);
+        uartRxBuffer = "";
+    }
+    
+    lastState = currentState;
+    
+    // Stop Logic capture if buffer is full
+    if (isBufferFull()) {
+        addLogEntry("Dual-mode Logic buffer full - stopping capture");
+        capturing = false;
+        Serial.println("Dual-mode Logic buffer full, capture stopped");
+    }
+}
+
+String LogicAnalyzer::getDualModeStatus() const {
+    JsonDocument doc;
+    doc["dual_mode_active"] = dualModeActive;
+    doc["compatible"] = isDualModeCompatible();
+    doc["uart_pin"] = uartConfig.rxPin;
+    doc["logic_pin"] = logicConfig.gpioPin;
+    doc["uart_monitoring"] = uartMonitoringEnabled;
+    doc["logic_capturing"] = capturing;
+    doc["logic_samples"] = getBufferUsage();
+    doc["uart_entries"] = getUartLogCount();
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
 #endif
 
 LogicAnalyzer::LogicAnalyzer() {
@@ -27,26 +128,71 @@ LogicAnalyzer::LogicAnalyzer() {
     preferences = nullptr;
     maxUartEntries = MAX_UART_ENTRIES;  // Initialize with default
     
+    // Half-duplex initialization
+    halfDuplexTxMode = false;
+    halfDuplexTxTimeout = 0;
+    halfDuplexTxQueue = "";
+    halfDuplexBusy = false;
+    
+    // Dual-mode initialization
+    dualModeActive = false;
+    
     // Flash Storage initialization - Enable by default to use 8MB Flash
     useFlashStorage = true;
     uartLogFileName = "/uart_logs.txt";
+    
+    // Advanced Logic Analyzer initialization
+    flashLogicFileName = "/logic_samples.bin";
+    flashSamplesWritten = 0;
+    flashWritePosition = 0;
+    flashStorageActive = false;
+    compressedBuffer = nullptr;
+    compressedCount = 0;
+    lastTimestamp = 0;
+    lastData = false;
+    runLength = 0;
+    streamingActive = false;
+    streamingCount = 0;
+    flashWriteBuffer = nullptr;
+    bufferPosition = 0;
     
     sampleInterval = 1000000 / sampleRate; // microseconds
 }
 
 LogicAnalyzer::~LogicAnalyzer() {
     stopCapture();
+    
+    // Cleanup advanced buffers
+    if (compressedBuffer) {
+        free(compressedBuffer);
+        compressedBuffer = nullptr;
+    }
+    if (flashWriteBuffer) {
+        free(flashWriteBuffer);
+        flashWriteBuffer = nullptr;
+    }
+    if (flashDataFile) {
+        flashDataFile.close();
+    }
 }
 
 void LogicAnalyzer::begin() {
-    Serial.println("Initializing GPIO1 Logic Analyzer...");
+    Serial.println("Initializing M5Stack AtomProbe GPIO Monitor...");
     initializeGPIO1();
     clearBuffer();
     
     // Initialize LittleFS for potential flash storage
     initFlashStorage();
     
-    Serial.printf("GPIO1 Logic Analyzer initialized at %d Hz with %d sample buffer\n", sampleRate, BUFFER_SIZE);
+    // Initialize flash storage for Logic Analyzer (default mode)
+    if (logicConfig.bufferMode == BUFFER_FLASH) {
+        enableFlashBuffering(BUFFER_FLASH, logicConfig.maxFlashSamples);
+        addLogEntry("Logic Analyzer Flash mode enabled: " + String(logicConfig.maxFlashSamples) + " samples");
+    }
+    
+    Serial.printf("M5Stack AtomProbe GPIO Monitor initialized at %d Hz with %d sample buffer (Flash: %s)\\n", 
+                  sampleRate, logicConfig.maxFlashSamples, 
+                  logicConfig.bufferMode == BUFFER_FLASH ? "enabled" : "disabled");
 }
 
 void LogicAnalyzer::initializeGPIO1() {
@@ -55,6 +201,17 @@ void LogicAnalyzer::initializeGPIO1() {
 }
 
 void LogicAnalyzer::process() {
+    // Dual-mode processing (UART + Logic on same pin)
+    if (dualModeActive && uartMonitoringEnabled && capturing) {
+        uint32_t currentTime = micros();
+        if (currentTime - lastSampleTime >= sampleInterval) {
+            bool currentState = readGPIO1();
+            processDualModeData(currentState);
+            lastSampleTime = currentTime;
+        }
+        return;
+    }
+    
     // Process UART data monitoring
     if (uartMonitoringEnabled) {
         processUartData();
@@ -93,7 +250,9 @@ void LogicAnalyzer::process() {
 }
 
 bool LogicAnalyzer::readGPIO1() {
-    return digitalRead(gpio1Pin);
+    // Direct register access for maximum speed on ESP32-S3
+    // GPIO1 is in GPIO_IN_REG (0x3ff4403c)
+    return (REG_READ(GPIO_IN_REG) & (1 << gpio1Pin)) != 0;
 }
 
 bool LogicAnalyzer::checkTrigger(bool currentState) {
@@ -114,9 +273,33 @@ bool LogicAnalyzer::checkTrigger(bool currentState) {
 }
 
 void LogicAnalyzer::addSample(bool data) {
-    buffer[writeIndex].timestamp = micros();
-    buffer[writeIndex].data = data;
-    writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+    Sample sample;
+    sample.timestamp = micros();
+    sample.data = data;
+    
+    // Handle different buffer modes
+    switch (logicConfig.bufferMode) {
+        case BUFFER_RAM:
+            // Standard RAM buffer
+            buffer[writeIndex] = sample;
+            writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+            break;
+            
+        case BUFFER_FLASH:
+            // Write directly to flash
+            writeToFlash(sample);
+            break;
+            
+        case BUFFER_STREAMING:
+            // Continuous streaming
+            processStreamingSample(sample);
+            break;
+            
+        case BUFFER_COMPRESSED:
+            // Compressed storage
+            compressSample(sample);
+            break;
+    }
 }
 
 void LogicAnalyzer::startCapture() {
@@ -130,8 +313,18 @@ void LogicAnalyzer::startCapture() {
 
 void LogicAnalyzer::stopCapture() {
     capturing = false;
-    addLogEntry(String("Capture stopped. Buffer: ") + getBufferUsage() + "/" + BUFFER_SIZE);
+    
+    uint32_t maxSize = (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) 
+                       ? logicConfig.maxFlashSamples : BUFFER_SIZE;
+    
+    addLogEntry(String("Capture stopped. Buffer: ") + getBufferUsage() + "/" + maxSize + " (" + 
+                (logicConfig.bufferMode == BUFFER_FLASH ? "Flash" : "RAM") + ")");
     Serial.println("Capture stopped");
+    
+    // Flush any remaining flash data
+    if (logicConfig.bufferMode == BUFFER_FLASH) {
+        flushFlashBuffer();
+    }
 }
 
 bool LogicAnalyzer::isCapturing() const {
@@ -171,10 +364,10 @@ String LogicAnalyzer::getDataAsJSON() {
     JsonDocument doc;
     JsonArray samples = doc["samples"].to<JsonArray>();
     
-    uint16_t count = getBufferUsage();
-    uint16_t index = readIndex;
+    uint32_t count = getBufferUsage();
+    uint32_t index = readIndex;
     
-    for (uint16_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         JsonObject sample = samples.add<JsonObject>();
         sample["timestamp"] = buffer[index].timestamp;
         sample["gpio1"] = buffer[index].data;  // Single boolean for GPIO1
@@ -197,9 +390,29 @@ String LogicAnalyzer::getDataAsJSON() {
 void LogicAnalyzer::clearBuffer() {
     writeIndex = 0;
     readIndex = 0;
+    
+    // Clear flash storage if in flash mode
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        flashSamplesWritten = 0;
+        flashWritePosition = 0;
+        bufferPosition = 0;
+        
+        if (flashDataFile) {
+            flashDataFile.close();
+        }
+        
+        // Remove existing flash file
+        if (LittleFS.exists(flashLogicFileName)) {
+            LittleFS.remove(flashLogicFileName);
+        }
+    }
 }
 
-uint16_t LogicAnalyzer::getBufferUsage() const {
+uint32_t LogicAnalyzer::getBufferUsage() const {
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        return flashSamplesWritten;
+    }
+    
     if (writeIndex >= readIndex) {
         return writeIndex - readIndex;
     } else {
@@ -207,12 +420,23 @@ uint16_t LogicAnalyzer::getBufferUsage() const {
     }
 }
 
+uint32_t LogicAnalyzer::getCurrentBufferSize() const {
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        return logicConfig.maxFlashSamples;
+    }
+    return BUFFER_SIZE;
+}
+
 bool LogicAnalyzer::isBufferFull() const {
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        return flashSamplesWritten >= logicConfig.maxFlashSamples;
+    }
+    
     return getBufferUsage() >= (BUFFER_SIZE - 1);
 }
 
 void LogicAnalyzer::printStatus() {
-    Serial.println("=== GPIO1 Logic Analyzer Status ===");
+    Serial.println("=== M5Stack AtomProbe GPIO1 Monitor Status ===");
     Serial.printf("Capturing: %s\n", capturing ? "YES" : "NO");
     Serial.printf("Sample Rate: %d Hz\n", sampleRate);
     Serial.printf("GPIO Pin: %d\n", gpio1Pin);
@@ -269,15 +493,15 @@ void LogicAnalyzer::drawStartupLogo() {
     // Product name with modern font
     display.setTextColor(0xFFFF);
     display.setTextSize(1);
-    display.setCursor(25, 95);
-    display.print("AtomS3 Logic");
-    display.setCursor(35, 105);
-    display.print("Analyzer");
+    display.setCursor(27, 95);
+    display.print("M5Stack");
+    display.setCursor(23, 105);
+    display.print("AtomProbe");
     
     // Version with accent color
     display.setTextColor(0x7BEF);
     display.setCursor(48, 118);
-    display.print("v2.2.0");
+    display.print("v3.0.0");
     
     // Final glow effect
     for (int i = 0; i < 2; i++) {
@@ -377,7 +601,7 @@ void LogicAnalyzer::drawWiFiPage() {
         display.print("192.168.4.1");
         display.setTextColor(0xDEFB);
         display.setCursor(15, 90);
-        display.print("AtomS3_LogicAP");
+        display.print("M5Stack-AtomProbe");
     }
     
     // Page indicator
@@ -573,7 +797,7 @@ void LogicAnalyzer::clearLogs() {
 }
 
 String LogicAnalyzer::getLogsAsPlainText() {
-    String result = "# AtomS3 Logic Analyzer - Serial Logs\n";
+    String result = "# M5Stack AtomProbe - Serial Logs\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Total entries: " + String(serialLogBuffer.size()) + "\n\n";
     
@@ -589,7 +813,7 @@ String LogicAnalyzer::getLogsAsPlainText() {
 }
 
 String LogicAnalyzer::getDataAsCSV() {
-    String result = "# AtomS3 Logic Analyzer - GPIO1 Capture Data (CSV Format)\n";
+    String result = "# M5Stack AtomProbe - GPIO1 Capture Data (CSV Format)\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Sample Rate: " + String(sampleRate) + " Hz\n";
     result += "# GPIO Pin: " + String(gpio1Pin) + "\n";
@@ -601,10 +825,10 @@ String LogicAnalyzer::getDataAsCSV() {
     // CSV Header - optimized for single GPIO1 channel
     result += "Sample,Timestamp_us,GPIO1_Digital,GPIO1_State\n";
     
-    uint16_t count = getBufferUsage();
-    uint16_t index = readIndex;
+    uint32_t count = getBufferUsage();
+    uint32_t index = readIndex;
     
-    for (uint16_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         result += String(i + 1) + ",";  // Sample number
         result += String(buffer[index].timestamp) + ",";  // Timestamp
         result += String(buffer[index].data ? 1 : 0) + ",";  // Digital value (0/1)
@@ -622,20 +846,136 @@ String LogicAnalyzer::getDataAsCSV() {
     return result;
 }
 
+// Logic Analyzer Configuration Functions
+void LogicAnalyzer::configureLogic(uint32_t sampleRate, uint8_t gpioPin, TriggerMode triggerMode, uint32_t bufferSize, uint8_t preTriggerPercent) {
+    // Input validation
+    if (sampleRate < MIN_SAMPLE_RATE) sampleRate = MIN_SAMPLE_RATE;
+    if (sampleRate > MAX_SAMPLE_RATE) sampleRate = MAX_SAMPLE_RATE;
+    if (gpioPin > 48) gpioPin = CHANNEL_0_PIN;  // ESP32 has max 48 GPIO pins
+    if (bufferSize > MAX_BUFFER_SIZE) bufferSize = MAX_BUFFER_SIZE;
+    if (bufferSize < 1024) bufferSize = 1024;  // Minimum sensible buffer size
+    if (preTriggerPercent > 90) preTriggerPercent = 90;
+    if ((int)triggerMode < 0 || (int)triggerMode > 5) triggerMode = TRIGGER_NONE;
+    
+    logicConfig.sampleRate = sampleRate;
+    logicConfig.gpioPin = gpioPin;
+    logicConfig.triggerMode = triggerMode;
+    logicConfig.bufferSize = bufferSize;
+    logicConfig.preTriggerPercent = preTriggerPercent;
+    
+    // Apply configuration to analyzer
+    setSampleRate(sampleRate);
+    setTrigger(triggerMode);
+    gpio1Pin = gpioPin;
+    
+    saveLogicConfig();
+    
+    String configMsg = "Logic Analyzer configured: " + String(sampleRate) + "Hz, GPIO" + String(gpioPin) + 
+                       ", Trigger:" + String((int)triggerMode) + ", Buffer:" + String(bufferSize) +
+                       ", PreTrig:" + String(preTriggerPercent) + "%";
+    addLogEntry(configMsg);
+    Serial.println(configMsg);
+}
+
+String LogicAnalyzer::getLogicConfigAsJSON() {
+    JsonDocument doc;
+    doc["sample_rate"] = logicConfig.sampleRate;
+    doc["gpio_pin"] = logicConfig.gpioPin;
+    doc["trigger_mode"] = (int)logicConfig.triggerMode;
+    doc["trigger_mode_string"] = (logicConfig.triggerMode == TRIGGER_NONE ? "None" : 
+                                  logicConfig.triggerMode == TRIGGER_RISING_EDGE ? "Rising Edge" :
+                                  logicConfig.triggerMode == TRIGGER_FALLING_EDGE ? "Falling Edge" :
+                                  logicConfig.triggerMode == TRIGGER_BOTH_EDGES ? "Both Edges" :
+                                  logicConfig.triggerMode == TRIGGER_HIGH_LEVEL ? "High Level" :
+                                  logicConfig.triggerMode == TRIGGER_LOW_LEVEL ? "Low Level" : "Unknown");
+    doc["buffer_size"] = logicConfig.bufferSize;
+    doc["pre_trigger_percent"] = logicConfig.preTriggerPercent;
+    doc["enabled"] = logicConfig.enabled;
+    doc["buffer_duration_seconds"] = calculateBufferDuration();
+    doc["min_sample_rate"] = MIN_SAMPLE_RATE;
+    doc["max_sample_rate"] = MAX_SAMPLE_RATE;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+void LogicAnalyzer::saveLogicConfig() {
+    if (preferences) {
+        preferences->putUInt("logic_rate", logicConfig.sampleRate);
+        preferences->putUChar("logic_gpio", logicConfig.gpioPin);
+        preferences->putUChar("logic_trig", (uint8_t)logicConfig.triggerMode);
+        preferences->putUInt("logic_buffer", logicConfig.bufferSize);
+        preferences->putUChar("logic_pretrig", logicConfig.preTriggerPercent);
+        preferences->putBool("logic_enabled", logicConfig.enabled);
+        
+        String configMsg = "Logic config saved: " + String(logicConfig.sampleRate) + "Hz, GPIO" + 
+                           String(logicConfig.gpioPin) + ", Trigger:" + String((int)logicConfig.triggerMode);
+        addLogEntry(configMsg);
+        Serial.println(configMsg);
+    } else {
+        addLogEntry("Logic config save failed - no preferences available");
+        Serial.println("Logic config save failed - no preferences available");
+    }
+}
+
+void LogicAnalyzer::loadLogicConfig() {
+    if (preferences) {
+        logicConfig.sampleRate = preferences->getUInt("logic_rate", DEFAULT_SAMPLE_RATE);
+        logicConfig.gpioPin = preferences->getUChar("logic_gpio", CHANNEL_0_PIN);
+        logicConfig.triggerMode = (TriggerMode)preferences->getUChar("logic_trig", TRIGGER_NONE);
+        logicConfig.bufferSize = preferences->getUInt("logic_buffer", BUFFER_SIZE);
+        logicConfig.preTriggerPercent = preferences->getUChar("logic_pretrig", 10);
+        logicConfig.enabled = preferences->getBool("logic_enabled", true);
+        
+        // Apply loaded configuration
+        setSampleRate(logicConfig.sampleRate);
+        setTrigger(logicConfig.triggerMode);
+        gpio1Pin = logicConfig.gpioPin;
+        
+        String configMsg = "Logic config loaded: " + String(logicConfig.sampleRate) + "Hz, GPIO" + 
+                           String(logicConfig.gpioPin) + ", Trigger:" + String((int)logicConfig.triggerMode);
+        addLogEntry(configMsg);
+        Serial.println(configMsg);
+    } else {
+        // Use default values
+        logicConfig.sampleRate = DEFAULT_SAMPLE_RATE;
+        logicConfig.gpioPin = CHANNEL_0_PIN;
+        logicConfig.triggerMode = TRIGGER_NONE;
+        logicConfig.bufferSize = BUFFER_SIZE;
+        logicConfig.preTriggerPercent = 10;
+        logicConfig.enabled = true;
+        addLogEntry("Logic config loaded (defaults - no preferences available)");
+    }
+}
+
+float LogicAnalyzer::calculateBufferDuration() const {
+    if (logicConfig.sampleRate == 0) return 0.0;
+    return (float)logicConfig.bufferSize / (float)logicConfig.sampleRate;
+}
+
 // UART Monitoring Functions
-void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, uint8_t txPin) {
+void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, int8_t txPin, UartDuplexMode duplexMode) {
     uartConfig.baudrate = baudrate;
     uartConfig.dataBits = dataBits;
     uartConfig.parity = parity;
     uartConfig.stopBits = stopBits;
     uartConfig.rxPin = rxPin;
     uartConfig.txPin = txPin;
+    uartConfig.duplexMode = duplexMode;
+    
+    // Initialize half-duplex state variables
+    halfDuplexTxMode = false;
+    halfDuplexTxTimeout = 0;
+    halfDuplexTxQueue = "";
+    halfDuplexBusy = false;
     
     saveUartConfig();
     
+    String modeStr = (duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
     String configMsg = "UART configured: " + String(baudrate) + " baud, " + String(dataBits) + 
                        String(parity == 0 ? "N" : (parity == 1 ? "O" : "E")) + String(stopBits) +
-                       ", RX:" + String(rxPin) + ", TX:" + String(txPin);
+                       ", RX:" + String(rxPin) + ", TX:" + String(txPin) + ", " + modeStr + "-Duplex";
     addLogEntry(configMsg);
     Serial.println(configMsg);
 }
@@ -670,7 +1010,19 @@ void LogicAnalyzer::enableUartMonitoring() {
         }
     }
     
-    uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, uartConfig.txPin);
+    // Initialize UART based on duplex mode
+    if (uartConfig.duplexMode == UART_HALF_DUPLEX) {
+        // Half-duplex: Start in RX mode, TX pin not used for hardware UART
+        uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, -1);
+        setupHalfDuplexPin(false); // Start in RX mode
+        halfDuplexTxMode = false;
+        halfDuplexBusy = false;
+        addLogEntry("Half-duplex mode: RX pin " + String(uartConfig.rxPin) + " (bidirectional)");
+    } else {
+        // Full-duplex: Standard RX/TX configuration
+        uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, uartConfig.txPin);
+    }
+    
     uartMonitoringEnabled = true;
     uartConfig.enabled = true;
     uartRxBuffer = "";
@@ -679,8 +1031,12 @@ void LogicAnalyzer::enableUartMonitoring() {
     uartBytesReceived = 0;
     uartBytesSent = 0;
     
-    String enableMsg = "UART monitoring enabled on RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin) + 
-                       " @ " + String(uartConfig.baudrate) + " baud";
+    String modeStr = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
+    String enableMsg = "UART monitoring enabled (" + modeStr + "-duplex) on RX:" + String(uartConfig.rxPin);
+    if (uartConfig.duplexMode == UART_FULL_DUPLEX && uartConfig.txPin != -1) {
+        enableMsg += ", TX:" + String(uartConfig.txPin);
+    }
+    enableMsg += " @ " + String(uartConfig.baudrate) + " baud";
     addLogEntry(enableMsg);
     Serial.println(enableMsg);
 }
@@ -701,34 +1057,47 @@ void LogicAnalyzer::disableUartMonitoring() {
 void LogicAnalyzer::processUartData() {
     if (!uartSerial || !uartMonitoringEnabled) return;
     
-    while (uartSerial->available()) {
-        char c = uartSerial->read();
-        uartBytesReceived++;
-        lastUartActivity = millis();
+    // Handle half-duplex mode
+    if (uartConfig.duplexMode == UART_HALF_DUPLEX) {
+        processHalfDuplexQueue();
         
-        if (c == '\n' || c == '\r') {
-            if (uartRxBuffer.length() > 0) {
-                addUartEntry(uartRxBuffer, true);  // true = RX data
-                uartRxBuffer = "";
-            }
-        } else if (c >= 32 && c <= 126) {  // Printable characters only
-            uartRxBuffer += c;
-            
-            // Prevent buffer overflow
-            if (uartRxBuffer.length() > UART_MSG_MAX_LENGTH) {
-                addUartEntry(uartRxBuffer + " [TRUNCATED]", true);
-                uartRxBuffer = "";
-            }
-        } else {
-            // Handle non-printable characters as hex
-            uartRxBuffer += "[0x" + String(c, HEX) + "]";
+        // Check for TX timeout (switch back to RX mode)
+        if (halfDuplexTxMode && (millis() - halfDuplexTxTimeout > 100)) {
+            switchToRxMode();
         }
     }
     
-    // Handle incomplete lines that timeout
-    if (uartRxBuffer.length() > 0 && (millis() - lastUartActivity) > 1000) {
-        addUartEntry(uartRxBuffer + " [TIMEOUT]", true);
-        uartRxBuffer = "";
+    // Process incoming data (only if in RX mode for half-duplex)
+    if (uartConfig.duplexMode == UART_FULL_DUPLEX || !halfDuplexTxMode) {
+        while (uartSerial->available()) {
+            char c = uartSerial->read();
+            uartBytesReceived++;
+            lastUartActivity = millis();
+            
+            if (c == '\n' || c == '\r') {
+                if (uartRxBuffer.length() > 0) {
+                    addUartEntry(uartRxBuffer, true);  // true = RX data
+                    uartRxBuffer = "";
+                }
+            } else if (c >= 32 && c <= 126) {  // Printable characters only
+                uartRxBuffer += c;
+                
+                // Prevent buffer overflow
+                if (uartRxBuffer.length() > UART_MSG_MAX_LENGTH) {
+                    addUartEntry(uartRxBuffer + " [TRUNCATED]", true);
+                    uartRxBuffer = "";
+                }
+            } else {
+                // Handle non-printable characters as hex
+                uartRxBuffer += "[0x" + String(c, HEX) + "]";
+            }
+        }
+        
+        // Handle incomplete lines that timeout
+        if (uartRxBuffer.length() > 0 && (millis() - lastUartActivity) > 1000) {
+            addUartEntry(uartRxBuffer + " [TIMEOUT]", true);
+            uartRxBuffer = "";
+        }
     }
 }
 
@@ -812,6 +1181,8 @@ String LogicAnalyzer::getUartLogsAsJSON() {
     configDoc["stop_bits"] = uartConfig.stopBits;
     configDoc["rx_pin"] = uartConfig.rxPin;
     configDoc["tx_pin"] = uartConfig.txPin;
+    configDoc["duplex_mode"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? 0 : 1;  // 0=Full, 1=Half
+    configDoc["duplex_string"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
     configDoc["enabled"] = uartConfig.enabled;
     
     doc["config"] = configDoc;
@@ -830,6 +1201,8 @@ String LogicAnalyzer::getUartConfigAsJSON() {
     doc["stop_bits"] = uartConfig.stopBits;
     doc["rx_pin"] = uartConfig.rxPin;
     doc["tx_pin"] = uartConfig.txPin;
+    doc["duplex_mode"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? 0 : 1;  // 0=Full, 1=Half
+    doc["duplex_string"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
     doc["enabled"] = uartConfig.enabled;
     
     String result;
@@ -838,7 +1211,7 @@ String LogicAnalyzer::getUartConfigAsJSON() {
 }
 
 String LogicAnalyzer::getUartLogsAsPlainText() {
-    String result = "# AtomS3 Logic Analyzer - UART Communication Logs\n";
+    String result = "# AtomS3 AtomProbe - UART Communication Logs\\n";
     result += "# Generated: " + String(millis()) + "ms\n";
     result += "# Monitoring Enabled: " + String(uartMonitoringEnabled ? "YES" : "NO") + "\n";
     result += "# Last Activity: " + String(lastUartActivity) + "ms\n";
@@ -897,13 +1270,16 @@ void LogicAnalyzer::saveUartConfig() {
         preferences->putUChar("uart_parity", uartConfig.parity);
         preferences->putUChar("uart_stop", uartConfig.stopBits);
         preferences->putUChar("uart_rx_pin", uartConfig.rxPin);
-        preferences->putUChar("uart_tx_pin", uartConfig.txPin);
+        preferences->putChar("uart_tx_pin", uartConfig.txPin);
+        preferences->putUChar("uart_duplex", (uint8_t)uartConfig.duplexMode);
         preferences->putBool("uart_enabled", uartConfig.enabled);
         
+        String modeStr = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
         String configMsg = "UART config saved: " + String(uartConfig.baudrate) + " baud, " + 
                            String(uartConfig.dataBits) + 
                            String(uartConfig.parity == 0 ? "N" : (uartConfig.parity == 1 ? "O" : "E")) + 
-                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin);
+                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin) + 
+                           ", " + modeStr + "-Duplex";
         addLogEntry(configMsg);
         Serial.println(configMsg);
     } else {
@@ -920,12 +1296,15 @@ void LogicAnalyzer::loadUartConfig() {
         uartConfig.stopBits = preferences->getUChar("uart_stop", 1);
         uartConfig.rxPin = preferences->getUChar("uart_rx_pin", 7);
         uartConfig.txPin = preferences->getChar("uart_tx_pin", -1);
+        uartConfig.duplexMode = (UartDuplexMode)preferences->getUChar("uart_duplex", UART_FULL_DUPLEX);
         uartConfig.enabled = preferences->getBool("uart_enabled", false);
         
+        String modeStr = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
         String configMsg = "UART config loaded: " + String(uartConfig.baudrate) + " baud, " + 
                            String(uartConfig.dataBits) + 
                            String(uartConfig.parity == 0 ? "N" : (uartConfig.parity == 1 ? "O" : "E")) + 
-                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin);
+                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin) + 
+                           ", " + modeStr + "-Duplex";
         addLogEntry(configMsg);
         Serial.println(configMsg);
     } else {
@@ -936,6 +1315,7 @@ void LogicAnalyzer::loadUartConfig() {
         uartConfig.stopBits = 1;
         uartConfig.rxPin = 7;
         uartConfig.txPin = -1;
+        uartConfig.duplexMode = UART_FULL_DUPLEX;
         uartConfig.enabled = false;
         addLogEntry("UART config loaded (defaults - no preferences available)");
         Serial.println("UART config loaded (defaults)");
@@ -1104,6 +1484,504 @@ void LogicAnalyzer::clearFlashUartLogs() {
             Serial.println("Failed to clear Flash UART logs");
         }
     }
+}
+
+// ===== ADVANCED LOGIC ANALYZER FEATURES =====
+
+// Flash Storage for Logic Analyzer
+void LogicAnalyzer::initFlashLogicStorage() {
+    if (!LittleFS.begin()) {
+        Serial.println("Flash storage not available for logic analyzer");
+        addLogEntry("Logic flash storage init failed");
+        return;
+    }
+    
+    // Initialize flash write buffer
+    if (!flashWriteBuffer) {
+        flashWriteBuffer = (uint8_t*)malloc(FLASH_CHUNK_SIZE);
+        if (!flashWriteBuffer) {
+            Serial.println("Failed to allocate flash write buffer");
+            return;
+        }
+    }
+    
+    // Initialize compression buffer
+    if (!compressedBuffer) {
+        compressedBuffer = (CompressedSample*)malloc(sizeof(CompressedSample) * 1000);
+        if (!compressedBuffer) {
+            Serial.println("Failed to allocate compression buffer");
+        }
+    }
+    
+    flashStorageActive = true;
+    bufferPosition = 0;
+    compressedCount = 0;
+    
+    addLogEntry("Logic flash storage initialized");
+    Serial.println("Logic Analyzer Flash Storage ready");
+}
+
+void LogicAnalyzer::enableFlashBuffering(BufferMode mode, uint32_t maxSamples) {
+    logicConfig.bufferMode = mode;
+    
+    // Limit flash samples to realistic values (5.6MB total shared with UART)
+    if (maxSamples > MAX_FLASH_BUFFER_SIZE) {
+        maxSamples = MAX_FLASH_BUFFER_SIZE;
+    }
+    logicConfig.maxFlashSamples = maxSamples;
+    
+    if (mode == BUFFER_FLASH || mode == BUFFER_STREAMING) {
+        initFlashLogicStorage();
+        
+        // Initialize flash header
+        flashHeader.magic = 0x4C4F4749;  // "LOGI"
+        flashHeader.version = 1;
+        flashHeader.sample_count = 0;
+        flashHeader.buffer_size = maxSamples;
+        flashHeader.sample_rate = sampleRate;
+        flashHeader.compression = (uint32_t)logicConfig.compression;
+        
+        String msg = "Flash buffering enabled: " + String(maxSamples) + " max samples (shared 5.6MB flash)";
+        addLogEntry(msg);
+        addLogEntry("WARNING: Flash storage shared with UART logs");
+    }
+    
+    if (mode == BUFFER_COMPRESSED) {
+        if (!compressedBuffer) {
+            initFlashLogicStorage();
+        }
+        addLogEntry("Compression enabled: " + String(logicConfig.compression));
+    }
+}
+
+void LogicAnalyzer::writeToFlash(const Sample& sample) {
+    if (!flashWriteBuffer) return;
+    
+    // Write sample to buffer
+    memcpy(flashWriteBuffer + bufferPosition, &sample, sizeof(Sample));
+    bufferPosition += sizeof(Sample);
+    flashSamplesWritten++;
+    
+    // Flush if buffer is full
+    if (bufferPosition >= FLASH_CHUNK_SIZE - sizeof(Sample)) {
+        flushFlashBuffer();
+    }
+}
+
+void LogicAnalyzer::flushFlashBuffer() {
+    if (!flashWriteBuffer || bufferPosition == 0) return;
+    
+    if (!flashDataFile) {
+        flashDataFile = LittleFS.open(flashLogicFileName, "a");
+    }
+    
+    if (flashDataFile) {
+        size_t written = flashDataFile.write(flashWriteBuffer, bufferPosition);
+        flashWritePosition += written;
+        bufferPosition = 0;
+    }
+}
+
+// Compression Methods
+void LogicAnalyzer::enableCompression(CompressionType type) {
+    logicConfig.compression = type;
+    runLength = 0;
+    lastTimestamp = 0;
+    lastData = false;
+    
+    String compressionName = (type == COMPRESS_RLE ? "RLE" :
+                             type == COMPRESS_DELTA ? "Delta" :
+                             type == COMPRESS_HYBRID ? "Hybrid" : "None");
+    
+    addLogEntry("Compression enabled: " + compressionName);
+}
+
+void LogicAnalyzer::compressSample(const Sample& sample) {
+    if (!compressedBuffer) return;
+    
+    switch (logicConfig.compression) {
+        case COMPRESS_RLE:
+            compressRunLength(sample.data, sample.timestamp, 1);
+            break;
+        case COMPRESS_DELTA:
+            compressDelta(sample.timestamp, sample.data);
+            break;
+        case COMPRESS_HYBRID:
+            // Use RLE for consecutive same values, delta for changes
+            if (sample.data == lastData && runLength < 65535) {
+                runLength++;
+            } else {
+                if (runLength > 0) {
+                    compressRunLength(lastData, lastTimestamp, runLength);
+                }
+                compressDelta(sample.timestamp, sample.data);
+                runLength = 1;
+            }
+            break;
+        default:
+            break;
+    }
+    
+    lastTimestamp = sample.timestamp;
+    lastData = sample.data;
+}
+
+void LogicAnalyzer::compressRunLength(bool data, uint32_t timestamp, uint16_t count) {
+    if (compressedCount < 1000) {
+        CompressedSample& compressed = compressedBuffer[compressedCount];
+        compressed.timestamp = timestamp;
+        compressed.count = count;
+        compressed.data = data;
+        compressed.type = COMPRESS_RLE;
+        compressedCount++;
+    }
+}
+
+void LogicAnalyzer::compressDelta(uint32_t timestamp, bool data) {
+    if (compressedCount < 1000) {
+        CompressedSample& compressed = compressedBuffer[compressedCount];
+        compressed.timestamp = timestamp - lastTimestamp;
+        compressed.count = 1;
+        compressed.data = data;
+        compressed.type = COMPRESS_DELTA;
+        compressedCount++;
+    }
+}
+
+// Streaming Methods
+void LogicAnalyzer::enableStreamingMode(bool enable) {
+    logicConfig.streamingMode = enable;
+    streamingActive = enable;
+    streamingCount = 0;
+    
+    if (enable) {
+        initFlashLogicStorage();
+        addLogEntry("Streaming mode enabled - continuous capture to flash");
+    } else {
+        flushFlashBuffer();
+        if (flashDataFile) {
+            flashDataFile.close();
+        }
+        addLogEntry("Streaming mode disabled");
+    }
+}
+
+void LogicAnalyzer::processStreamingSample(const Sample& sample) {
+    if (!streamingActive) return;
+    
+    streamingCount++;
+    
+    if (logicConfig.compression != COMPRESS_NONE) {
+        compressSample(sample);
+        
+        // Flush compressed data periodically
+        if (compressedCount >= 500) {
+            // Write compressed samples to flash
+            for (uint32_t i = 0; i < compressedCount; i++) {
+                writeToFlash(*(Sample*)&compressedBuffer[i]);
+            }
+            compressedCount = 0;
+        }
+    } else {
+        writeToFlash(sample);
+    }
+    
+    // Flush to flash every 1000 samples
+    if (streamingCount % 1000 == 0) {
+        flushFlashBuffer();
+    }
+}
+
+String LogicAnalyzer::getFlashDataAsJSON(uint32_t offset, uint32_t count) {
+    JsonDocument doc;
+    doc["flash_samples"] = flashSamplesWritten;
+    doc["flash_position"] = flashWritePosition;
+    doc["storage_mb"] = getFlashStorageUsedMB();
+    doc["buffer_mode"] = getBufferModeString();
+    doc["compression_ratio"] = getCompressionRatio();
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+uint32_t LogicAnalyzer::getCompressionRatio() const {
+    if (flashSamplesWritten == 0) return 0;
+    
+    uint32_t originalSize = flashSamplesWritten * sizeof(Sample);
+    uint32_t compressedSize = compressedCount * sizeof(CompressedSample);
+    
+    if (compressedSize == 0) return 0;
+    return (originalSize - compressedSize) * 100 / originalSize;
+}
+
+String LogicAnalyzer::getBufferModeString() const {
+    switch (logicConfig.bufferMode) {
+        case BUFFER_RAM: return "RAM";
+        case BUFFER_FLASH: return "Flash";
+        case BUFFER_STREAMING: return "Streaming";
+        case BUFFER_COMPRESSED: return "Compressed";
+        default: return "Unknown";
+    }
+}
+
+float LogicAnalyzer::getFlashStorageUsedMB() const {
+    return flashWritePosition / (1024.0 * 1024.0);
+}
+
+uint32_t LogicAnalyzer::getFlashSampleCount() const {
+    return flashSamplesWritten;
+}
+
+void LogicAnalyzer::clearFlashLogicData() {
+    if (flashDataFile) {
+        flashDataFile.close();
+    }
+    
+    if (LittleFS.exists(flashLogicFileName)) {
+        LittleFS.remove(flashLogicFileName);
+    }
+    
+    flashSamplesWritten = 0;
+    flashWritePosition = 0;
+    bufferPosition = 0;
+    compressedCount = 0;
+    
+    addLogEntry("Flash logic data cleared");
+}
+
+void LogicAnalyzer::setBufferMode(BufferMode mode) {
+    logicConfig.bufferMode = mode;
+    
+    switch (mode) {
+        case BUFFER_FLASH:
+            enableFlashBuffering(mode, FLASH_BUFFER_SIZE);
+            break;
+        case BUFFER_STREAMING:
+            enableStreamingMode(true);
+            break;
+        case BUFFER_COMPRESSED:
+            enableCompression(COMPRESS_HYBRID);
+            break;
+        default:
+            break;
+    }
+}
+
+String LogicAnalyzer::getAdvancedStatusJSON() const {
+    JsonDocument doc;
+    doc["buffer_mode"] = getBufferModeString();
+    doc["compression_type"] = (int)logicConfig.compression;
+    doc["flash_samples"] = flashSamplesWritten;
+    doc["flash_storage_mb"] = getFlashStorageUsedMB();
+    doc["streaming_active"] = streamingActive;
+    doc["streaming_count"] = streamingCount;
+    doc["compression_ratio"] = getCompressionRatio();
+    doc["compressed_samples"] = compressedCount;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+bool LogicAnalyzer::isStreamingActive() const {
+    return streamingActive;
+}
+
+uint32_t LogicAnalyzer::getStreamingSampleCount() const {
+    return streamingCount;
+}
+
+void LogicAnalyzer::stopStreaming() {
+    if (streamingActive) {
+        flushFlashBuffer();
+        if (flashDataFile) {
+            flashDataFile.close();
+        }
+        streamingActive = false;
+        addLogEntry("Streaming capture stopped - " + String(streamingCount) + " samples captured");
+    }
+}
+
+BufferMode LogicAnalyzer::getBufferMode() const {
+    return logicConfig.bufferMode;
+}
+
+String LogicAnalyzer::getCompressedDataAsJSON() {
+    JsonDocument doc;
+    JsonArray samples = doc["compressed_samples"].to<JsonArray>();
+    
+    for (uint32_t i = 0; i < compressedCount && i < 100; i++) {
+        JsonObject sample = samples.add<JsonObject>();
+        sample["timestamp"] = compressedBuffer[i].timestamp;
+        sample["count"] = compressedBuffer[i].count;
+        sample["data"] = compressedBuffer[i].data;
+        sample["type"] = compressedBuffer[i].type;
+    }
+    
+    doc["total_compressed"] = compressedCount;
+    doc["compression_ratio"] = getCompressionRatio();
+    doc["original_samples"] = flashSamplesWritten;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+void LogicAnalyzer::clearCompressedBuffer() {
+    compressedCount = 0;
+    runLength = 0;
+    lastTimestamp = 0;
+    lastData = false;
+}
+
+// Half-Duplex UART Communication Methods
+void LogicAnalyzer::setupHalfDuplexPin(bool txMode) {
+    if (txMode) {
+        // Configure pin as output for TX mode
+        pinMode(uartConfig.rxPin, OUTPUT);
+        digitalWrite(uartConfig.rxPin, HIGH); // Idle high for UART
+    } else {
+        // Configure pin as input for RX mode
+        pinMode(uartConfig.rxPin, INPUT);
+    }
+}
+
+void LogicAnalyzer::processHalfDuplexQueue() {
+    if (!halfDuplexTxQueue.isEmpty() && !halfDuplexBusy) {
+        switchToTxMode();
+        
+        // Send the queued command
+        if (uartSerial) {
+            uartSerial->print(halfDuplexTxQueue);
+            uartSerial->flush(); // Ensure all data is sent
+        }
+        
+        // Log the transmitted data
+        addUartEntry(halfDuplexTxQueue, false); // false = TX data
+        uartBytesSent += halfDuplexTxQueue.length();
+        
+        halfDuplexTxQueue = "";
+        halfDuplexTxTimeout = millis();
+        halfDuplexBusy = true;
+        
+        addLogEntry("Half-duplex: Command sent, waiting for response");
+    }
+}
+
+void LogicAnalyzer::switchToRxMode() {
+    if (halfDuplexTxMode) {
+        halfDuplexTxMode = false;
+        halfDuplexBusy = false;
+        
+        // Reconfigure UART for RX mode
+        if (uartSerial) {
+            uartSerial->end();
+            
+            // Configure UART parameters for RX
+            uint32_t config = SERIAL_8N1;
+            if (uartConfig.dataBits == 7) {
+                if (uartConfig.parity == 0) config = SERIAL_7N1;
+                else if (uartConfig.parity == 1) config = SERIAL_7O1;
+                else if (uartConfig.parity == 2) config = SERIAL_7E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_7N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_7O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_7E2;
+                }
+            } else if (uartConfig.dataBits == 8) {
+                if (uartConfig.parity == 0) config = SERIAL_8N1;
+                else if (uartConfig.parity == 1) config = SERIAL_8O1;
+                else if (uartConfig.parity == 2) config = SERIAL_8E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_8N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_8O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_8E2;
+                }
+            }
+            
+            uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, -1);
+        }
+        
+        setupHalfDuplexPin(false); // Configure as input
+        addLogEntry("Half-duplex: Switched to RX mode");
+    }
+}
+
+void LogicAnalyzer::switchToTxMode() {
+    if (!halfDuplexTxMode) {
+        halfDuplexTxMode = true;
+        
+        // Reconfigure UART for TX mode
+        if (uartSerial) {
+            uartSerial->end();
+            
+            // Configure UART parameters for TX
+            uint32_t config = SERIAL_8N1;
+            if (uartConfig.dataBits == 7) {
+                if (uartConfig.parity == 0) config = SERIAL_7N1;
+                else if (uartConfig.parity == 1) config = SERIAL_7O1;
+                else if (uartConfig.parity == 2) config = SERIAL_7E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_7N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_7O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_7E2;
+                }
+            } else if (uartConfig.dataBits == 8) {
+                if (uartConfig.parity == 0) config = SERIAL_8N1;
+                else if (uartConfig.parity == 1) config = SERIAL_8O1;
+                else if (uartConfig.parity == 2) config = SERIAL_8E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_8N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_8O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_8E2;
+                }
+            }
+            
+            uartSerial->begin(uartConfig.baudrate, config, -1, uartConfig.rxPin);
+        }
+        
+        setupHalfDuplexPin(true); // Configure as output
+        addLogEntry("Half-duplex: Switched to TX mode");
+    }
+}
+
+bool LogicAnalyzer::sendHalfDuplexCommand(const String& command) {
+    if (uartConfig.duplexMode != UART_HALF_DUPLEX) {
+        addLogEntry("Error: Half-duplex command sent but not in half-duplex mode");
+        return false;
+    }
+    
+    if (halfDuplexBusy) {
+        addLogEntry("Error: Half-duplex busy, command queued: " + command);
+        halfDuplexTxQueue = command + "\r\n";  // Add line ending
+        return false;
+    }
+    
+    halfDuplexTxQueue = command + "\r\n";  // Add line ending
+    addLogEntry("Half-duplex: Command queued - " + command);
+    return true;
+}
+
+bool LogicAnalyzer::isHalfDuplexMode() const {
+    return uartConfig.duplexMode == UART_HALF_DUPLEX;
+}
+
+bool LogicAnalyzer::isHalfDuplexBusy() const {
+    return halfDuplexBusy;
+}
+
+String LogicAnalyzer::getHalfDuplexStatus() const {
+    JsonDocument doc;
+    doc["mode"] = (uartConfig.duplexMode == UART_HALF_DUPLEX) ? "Half" : "Full";
+    doc["busy"] = halfDuplexBusy;
+    doc["tx_mode"] = halfDuplexTxMode;
+    doc["queue_length"] = halfDuplexTxQueue.length();
+    doc["timeout"] = halfDuplexTxTimeout;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
 }
 
 #endif
