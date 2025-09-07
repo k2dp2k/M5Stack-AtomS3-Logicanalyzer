@@ -816,7 +816,7 @@ String getIndexHTML() {
            "<option value='20000000'>20MHz</option><option value='40000000'>40MHz (Max)</option></select></div>"
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>GPIO Pin:</label>" 
            "<select id='logic-gpiopin' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
-           "<option value='1' selected>GPIO1 (AtomS3 Optimized)</option><option value='2'>GPIO2</option><option value='4'>GPIO4</option></select></div>"
+           "<option value='1' selected>GPIO1 (AtomS3 Optimized)</option><option value='2'>GPIO2</option><option value='4'>GPIO4</option><option value='7'>GPIO7 (Dual Mode with UART)</option></select></div>"
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>Trigger Mode:</label>" 
            "<select id='logic-trigger' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
            "<option value='0' selected>None</option><option value='1'>Rising Edge</option><option value='2'>Falling Edge</option>" 
