@@ -63,8 +63,8 @@ pio lib list
 **LogicAnalyzer Class** (`src/logic_analyzer.cpp`, `include/logic_analyzer.h`)
 - Handles all signal capture logic using ESP32-S3 GPIO1 exclusively
 - Implements dual functionality: GPIO1 logic analysis + external UART monitoring with Flash storage
-- GPIO1: 16,384 sample buffer with configurable sample rates (1kHz - 10MHz)
-- UART: Intelligent dual-storage system (RAM: fast, Flash: persistent)
+- GPIO1: 16,384 sample buffer with flash storage default and configurable sample rates (1kHz - 10MHz)
+- UART: Flash storage by default with intelligent dual-storage system (RAM: fast, Flash: persistent)
 - Flash Storage: LittleFS integration with up to 100,000 UART entries
 - Automatic storage selection: <5K entries=RAM, >5K entries=Flash
 - Real-time storage migration with seamless data transfer
@@ -78,7 +78,7 @@ pio lib list
 - Embedded HTTP server using ESPAsyncWebServer library
 - REST API endpoints for capture control (`/api/start`, `/api/stop`, `/api/data`, `/api/status`)
 - Real-time status updates via JavaScript polling
-- Single-page application served directly from ESP32
+- Single-page application served directly from ESP32 with 'Logic Data' section for captured samples
 
 **Signal Processing Pipeline**
 1. **Initialization**: Configure GPIO1 as input with pull-up resistor
@@ -109,7 +109,7 @@ pio lib list
 - Internal pull-up resistor on GPIO1
 
 **External UART Monitor with Flash Storage:**
-- **Default pins: GPIO7 (RX), GPIO44 (TX)** - configurable via web interface
+- **Default pins: GPIO7 (RX), TX disabled (-1)** - configurable via web interface
 - **Supported baud rates:** 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600
 - **Data bits:** 7 or 8 bits configurable
 - **Parity:** None, Odd, or Even

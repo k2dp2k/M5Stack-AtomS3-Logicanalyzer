@@ -247,7 +247,7 @@ void setupWebServer() {
         }
         
         // Handle new parameters for advanced modes
-        uint8_t bufferMode = 0; // Default to RAM
+        uint8_t bufferMode = 1; // Default to Flash (BUFFER_FLASH)
         uint8_t compression = 0; // No compression
         uint32_t flashSamples = FLASH_BUFFER_SIZE;
         
@@ -275,14 +275,14 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"status\":\"configured\"}");
     });
     
-    // UART configuration endpoint
-    server.on("/api/uart/config", HTTP_GET, [](AsyncWebServerRequest *request){
+    // UART configuration endpoint (POST)
+    server.on("/api/uart/config", HTTP_POST, [](AsyncWebServerRequest *request){
         uint32_t baudrate = 115200;
         uint8_t dataBits = 8;
         uint8_t parity = 0;
         uint8_t stopBits = 1;
-        uint8_t rxPin = 43;
-        uint8_t txPin = 44;
+        uint8_t rxPin = 7;
+        int8_t txPin = -1;
         
         if (request->hasParam("baudrate", true)) {
             baudrate = request->getParam("baudrate", true)->value().toInt();
@@ -762,7 +762,7 @@ String getIndexHTML() {
            "</div>" 
            "<div class='grid'>" 
            "<div class='gemini-card'>" 
-           "<h3>📊 Capture Data</h3>" 
+           "<h3>📊 Logic Data</h3>"
            "<div class='controls'>" 
            "<button class='gemini-btn secondary' onclick='clearData()'>🗑️ Clear Data</button>" 
            "<button class='gemini-btn' onclick='downloadData(\"json\")'>📥 Download JSON</button>" 

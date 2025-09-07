@@ -786,7 +786,7 @@ float LogicAnalyzer::calculateBufferDuration() const {
 }
 
 // UART Monitoring Functions
-void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, uint8_t txPin) {
+void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, int8_t txPin) {
     uartConfig.baudrate = baudrate;
     uartConfig.dataBits = dataBits;
     uartConfig.parity = parity;
@@ -1060,7 +1060,7 @@ void LogicAnalyzer::saveUartConfig() {
         preferences->putUChar("uart_parity", uartConfig.parity);
         preferences->putUChar("uart_stop", uartConfig.stopBits);
         preferences->putUChar("uart_rx_pin", uartConfig.rxPin);
-        preferences->putUChar("uart_tx_pin", uartConfig.txPin);
+        preferences->putChar("uart_tx_pin", uartConfig.txPin);
         preferences->putBool("uart_enabled", uartConfig.enabled);
         
         String configMsg = "UART config saved: " + String(uartConfig.baudrate) + " baud, " + 

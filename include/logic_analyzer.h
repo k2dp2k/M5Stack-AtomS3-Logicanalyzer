@@ -112,7 +112,7 @@ private:
         TriggerMode triggerMode = TRIGGER_NONE;    // No trigger by default
         uint32_t bufferSize = BUFFER_SIZE;         // 16384 samples
         uint8_t preTriggerPercent = 10;            // % of buffer for pre-trigger data
-        BufferMode bufferMode = BUFFER_RAM;        // Default to RAM buffer
+        BufferMode bufferMode = BUFFER_FLASH;      // Default to Flash buffer for more storage
         CompressionType compression = COMPRESS_NONE; // No compression by default
         bool enabled = true;
         bool streamingMode = false;                // Continuous streaming
@@ -126,7 +126,7 @@ private:
         uint8_t parity = 0;  // 0=None, 1=Odd, 2=Even
         uint8_t stopBits = 1;
         uint8_t rxPin = 7;   // AtomS3 GPIO7 (G7) - RX only monitoring
-        uint8_t txPin = -1;  // TX disabled (not connected)
+        int8_t txPin = -1;   // TX disabled (not connected) - use signed int8_t
         bool enabled = false;
     };
     
@@ -217,7 +217,7 @@ public:
     float calculateBufferDuration() const;  // Calculate buffer duration in seconds
     
     // UART logging with configurable settings
-    void configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, uint8_t txPin);
+    void configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, int8_t txPin);
     void enableUartMonitoring();
     void disableUartMonitoring();
     void addUartEntry(const String& data, bool isRx = true);
