@@ -28,6 +28,12 @@ LogicAnalyzer::LogicAnalyzer() {
     preferences = nullptr;
     maxUartEntries = MAX_UART_ENTRIES;  // Initialize with default
     
+    // Half-duplex initialization
+    halfDuplexTxMode = false;
+    halfDuplexTxTimeout = 0;
+    halfDuplexTxQueue = "";
+    halfDuplexBusy = false;
+    
     // Flash Storage initialization - Enable by default to use 8MB Flash
     useFlashStorage = true;
     uartLogFileName = "/uart_logs.txt";
@@ -786,19 +792,27 @@ float LogicAnalyzer::calculateBufferDuration() const {
 }
 
 // UART Monitoring Functions
-void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, int8_t txPin) {
+void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, int8_t txPin, UartDuplexMode duplexMode) {
     uartConfig.baudrate = baudrate;
     uartConfig.dataBits = dataBits;
     uartConfig.parity = parity;
     uartConfig.stopBits = stopBits;
     uartConfig.rxPin = rxPin;
     uartConfig.txPin = txPin;
+    uartConfig.duplexMode = duplexMode;
+    
+    // Initialize half-duplex state variables
+    halfDuplexTxMode = false;
+    halfDuplexTxTimeout = 0;
+    halfDuplexTxQueue = "";
+    halfDuplexBusy = false;
     
     saveUartConfig();
     
+    String modeStr = (duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
     String configMsg = "UART configured: " + String(baudrate) + " baud, " + String(dataBits) + 
                        String(parity == 0 ? "N" : (parity == 1 ? "O" : "E")) + String(stopBits) +
-                       ", RX:" + String(rxPin) + ", TX:" + String(txPin);
+                       ", RX:" + String(rxPin) + ", TX:" + String(txPin) + ", " + modeStr + "-Duplex";
     addLogEntry(configMsg);
     Serial.println(configMsg);
 }
@@ -833,7 +847,19 @@ void LogicAnalyzer::enableUartMonitoring() {
         }
     }
     
-    uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, uartConfig.txPin);
+    // Initialize UART based on duplex mode
+    if (uartConfig.duplexMode == UART_HALF_DUPLEX) {
+        // Half-duplex: Start in RX mode, TX pin not used for hardware UART
+        uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, -1);
+        setupHalfDuplexPin(false); // Start in RX mode
+        halfDuplexTxMode = false;
+        halfDuplexBusy = false;
+        addLogEntry("Half-duplex mode: RX pin " + String(uartConfig.rxPin) + " (bidirectional)");
+    } else {
+        // Full-duplex: Standard RX/TX configuration
+        uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, uartConfig.txPin);
+    }
+    
     uartMonitoringEnabled = true;
     uartConfig.enabled = true;
     uartRxBuffer = "";
@@ -842,8 +868,12 @@ void LogicAnalyzer::enableUartMonitoring() {
     uartBytesReceived = 0;
     uartBytesSent = 0;
     
-    String enableMsg = "UART monitoring enabled on RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin) + 
-                       " @ " + String(uartConfig.baudrate) + " baud";
+    String modeStr = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
+    String enableMsg = "UART monitoring enabled (" + modeStr + "-duplex) on RX:" + String(uartConfig.rxPin);
+    if (uartConfig.duplexMode == UART_FULL_DUPLEX && uartConfig.txPin != -1) {
+        enableMsg += ", TX:" + String(uartConfig.txPin);
+    }
+    enableMsg += " @ " + String(uartConfig.baudrate) + " baud";
     addLogEntry(enableMsg);
     Serial.println(enableMsg);
 }
@@ -864,34 +894,47 @@ void LogicAnalyzer::disableUartMonitoring() {
 void LogicAnalyzer::processUartData() {
     if (!uartSerial || !uartMonitoringEnabled) return;
     
-    while (uartSerial->available()) {
-        char c = uartSerial->read();
-        uartBytesReceived++;
-        lastUartActivity = millis();
+    // Handle half-duplex mode
+    if (uartConfig.duplexMode == UART_HALF_DUPLEX) {
+        processHalfDuplexQueue();
         
-        if (c == '\n' || c == '\r') {
-            if (uartRxBuffer.length() > 0) {
-                addUartEntry(uartRxBuffer, true);  // true = RX data
-                uartRxBuffer = "";
-            }
-        } else if (c >= 32 && c <= 126) {  // Printable characters only
-            uartRxBuffer += c;
-            
-            // Prevent buffer overflow
-            if (uartRxBuffer.length() > UART_MSG_MAX_LENGTH) {
-                addUartEntry(uartRxBuffer + " [TRUNCATED]", true);
-                uartRxBuffer = "";
-            }
-        } else {
-            // Handle non-printable characters as hex
-            uartRxBuffer += "[0x" + String(c, HEX) + "]";
+        // Check for TX timeout (switch back to RX mode)
+        if (halfDuplexTxMode && (millis() - halfDuplexTxTimeout > 100)) {
+            switchToRxMode();
         }
     }
     
-    // Handle incomplete lines that timeout
-    if (uartRxBuffer.length() > 0 && (millis() - lastUartActivity) > 1000) {
-        addUartEntry(uartRxBuffer + " [TIMEOUT]", true);
-        uartRxBuffer = "";
+    // Process incoming data (only if in RX mode for half-duplex)
+    if (uartConfig.duplexMode == UART_FULL_DUPLEX || !halfDuplexTxMode) {
+        while (uartSerial->available()) {
+            char c = uartSerial->read();
+            uartBytesReceived++;
+            lastUartActivity = millis();
+            
+            if (c == '\n' || c == '\r') {
+                if (uartRxBuffer.length() > 0) {
+                    addUartEntry(uartRxBuffer, true);  // true = RX data
+                    uartRxBuffer = "";
+                }
+            } else if (c >= 32 && c <= 126) {  // Printable characters only
+                uartRxBuffer += c;
+                
+                // Prevent buffer overflow
+                if (uartRxBuffer.length() > UART_MSG_MAX_LENGTH) {
+                    addUartEntry(uartRxBuffer + " [TRUNCATED]", true);
+                    uartRxBuffer = "";
+                }
+            } else {
+                // Handle non-printable characters as hex
+                uartRxBuffer += "[0x" + String(c, HEX) + "]";
+            }
+        }
+        
+        // Handle incomplete lines that timeout
+        if (uartRxBuffer.length() > 0 && (millis() - lastUartActivity) > 1000) {
+            addUartEntry(uartRxBuffer + " [TIMEOUT]", true);
+            uartRxBuffer = "";
+        }
     }
 }
 
@@ -975,6 +1018,8 @@ String LogicAnalyzer::getUartLogsAsJSON() {
     configDoc["stop_bits"] = uartConfig.stopBits;
     configDoc["rx_pin"] = uartConfig.rxPin;
     configDoc["tx_pin"] = uartConfig.txPin;
+    configDoc["duplex_mode"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? 0 : 1;  // 0=Full, 1=Half
+    configDoc["duplex_string"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
     configDoc["enabled"] = uartConfig.enabled;
     
     doc["config"] = configDoc;
@@ -993,6 +1038,8 @@ String LogicAnalyzer::getUartConfigAsJSON() {
     doc["stop_bits"] = uartConfig.stopBits;
     doc["rx_pin"] = uartConfig.rxPin;
     doc["tx_pin"] = uartConfig.txPin;
+    doc["duplex_mode"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? 0 : 1;  // 0=Full, 1=Half
+    doc["duplex_string"] = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
     doc["enabled"] = uartConfig.enabled;
     
     String result;
@@ -1061,12 +1108,15 @@ void LogicAnalyzer::saveUartConfig() {
         preferences->putUChar("uart_stop", uartConfig.stopBits);
         preferences->putUChar("uart_rx_pin", uartConfig.rxPin);
         preferences->putChar("uart_tx_pin", uartConfig.txPin);
+        preferences->putUChar("uart_duplex", (uint8_t)uartConfig.duplexMode);
         preferences->putBool("uart_enabled", uartConfig.enabled);
         
+        String modeStr = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
         String configMsg = "UART config saved: " + String(uartConfig.baudrate) + " baud, " + 
                            String(uartConfig.dataBits) + 
                            String(uartConfig.parity == 0 ? "N" : (uartConfig.parity == 1 ? "O" : "E")) + 
-                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin);
+                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin) + 
+                           ", " + modeStr + "-Duplex";
         addLogEntry(configMsg);
         Serial.println(configMsg);
     } else {
@@ -1083,12 +1133,15 @@ void LogicAnalyzer::loadUartConfig() {
         uartConfig.stopBits = preferences->getUChar("uart_stop", 1);
         uartConfig.rxPin = preferences->getUChar("uart_rx_pin", 7);
         uartConfig.txPin = preferences->getChar("uart_tx_pin", -1);
+        uartConfig.duplexMode = (UartDuplexMode)preferences->getUChar("uart_duplex", UART_FULL_DUPLEX);
         uartConfig.enabled = preferences->getBool("uart_enabled", false);
         
+        String modeStr = (uartConfig.duplexMode == UART_FULL_DUPLEX) ? "Full" : "Half";
         String configMsg = "UART config loaded: " + String(uartConfig.baudrate) + " baud, " + 
                            String(uartConfig.dataBits) + 
                            String(uartConfig.parity == 0 ? "N" : (uartConfig.parity == 1 ? "O" : "E")) + 
-                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin);
+                           String(uartConfig.stopBits) + ", RX:" + String(uartConfig.rxPin) + ", TX:" + String(uartConfig.txPin) + 
+                           ", " + modeStr + "-Duplex";
         addLogEntry(configMsg);
         Serial.println(configMsg);
     } else {
@@ -1099,6 +1152,7 @@ void LogicAnalyzer::loadUartConfig() {
         uartConfig.stopBits = 1;
         uartConfig.rxPin = 7;
         uartConfig.txPin = -1;
+        uartConfig.duplexMode = UART_FULL_DUPLEX;
         uartConfig.enabled = false;
         addLogEntry("UART config loaded (defaults - no preferences available)");
         Serial.println("UART config loaded (defaults)");
@@ -1616,6 +1670,155 @@ void LogicAnalyzer::clearCompressedBuffer() {
     runLength = 0;
     lastTimestamp = 0;
     lastData = false;
+}
+
+// Half-Duplex UART Communication Methods
+void LogicAnalyzer::setupHalfDuplexPin(bool txMode) {
+    if (txMode) {
+        // Configure pin as output for TX mode
+        pinMode(uartConfig.rxPin, OUTPUT);
+        digitalWrite(uartConfig.rxPin, HIGH); // Idle high for UART
+    } else {
+        // Configure pin as input for RX mode
+        pinMode(uartConfig.rxPin, INPUT);
+    }
+}
+
+void LogicAnalyzer::processHalfDuplexQueue() {
+    if (!halfDuplexTxQueue.isEmpty() && !halfDuplexBusy) {
+        switchToTxMode();
+        
+        // Send the queued command
+        if (uartSerial) {
+            uartSerial->print(halfDuplexTxQueue);
+            uartSerial->flush(); // Ensure all data is sent
+        }
+        
+        // Log the transmitted data
+        addUartEntry(halfDuplexTxQueue, false); // false = TX data
+        uartBytesSent += halfDuplexTxQueue.length();
+        
+        halfDuplexTxQueue = "";
+        halfDuplexTxTimeout = millis();
+        halfDuplexBusy = true;
+        
+        addLogEntry("Half-duplex: Command sent, waiting for response");
+    }
+}
+
+void LogicAnalyzer::switchToRxMode() {
+    if (halfDuplexTxMode) {
+        halfDuplexTxMode = false;
+        halfDuplexBusy = false;
+        
+        // Reconfigure UART for RX mode
+        if (uartSerial) {
+            uartSerial->end();
+            
+            // Configure UART parameters for RX
+            uint32_t config = SERIAL_8N1;
+            if (uartConfig.dataBits == 7) {
+                if (uartConfig.parity == 0) config = SERIAL_7N1;
+                else if (uartConfig.parity == 1) config = SERIAL_7O1;
+                else if (uartConfig.parity == 2) config = SERIAL_7E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_7N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_7O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_7E2;
+                }
+            } else if (uartConfig.dataBits == 8) {
+                if (uartConfig.parity == 0) config = SERIAL_8N1;
+                else if (uartConfig.parity == 1) config = SERIAL_8O1;
+                else if (uartConfig.parity == 2) config = SERIAL_8E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_8N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_8O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_8E2;
+                }
+            }
+            
+            uartSerial->begin(uartConfig.baudrate, config, uartConfig.rxPin, -1);
+        }
+        
+        setupHalfDuplexPin(false); // Configure as input
+        addLogEntry("Half-duplex: Switched to RX mode");
+    }
+}
+
+void LogicAnalyzer::switchToTxMode() {
+    if (!halfDuplexTxMode) {
+        halfDuplexTxMode = true;
+        
+        // Reconfigure UART for TX mode
+        if (uartSerial) {
+            uartSerial->end();
+            
+            // Configure UART parameters for TX
+            uint32_t config = SERIAL_8N1;
+            if (uartConfig.dataBits == 7) {
+                if (uartConfig.parity == 0) config = SERIAL_7N1;
+                else if (uartConfig.parity == 1) config = SERIAL_7O1;
+                else if (uartConfig.parity == 2) config = SERIAL_7E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_7N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_7O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_7E2;
+                }
+            } else if (uartConfig.dataBits == 8) {
+                if (uartConfig.parity == 0) config = SERIAL_8N1;
+                else if (uartConfig.parity == 1) config = SERIAL_8O1;
+                else if (uartConfig.parity == 2) config = SERIAL_8E1;
+                if (uartConfig.stopBits == 2) {
+                    if (uartConfig.parity == 0) config = SERIAL_8N2;
+                    else if (uartConfig.parity == 1) config = SERIAL_8O2;
+                    else if (uartConfig.parity == 2) config = SERIAL_8E2;
+                }
+            }
+            
+            uartSerial->begin(uartConfig.baudrate, config, -1, uartConfig.rxPin);
+        }
+        
+        setupHalfDuplexPin(true); // Configure as output
+        addLogEntry("Half-duplex: Switched to TX mode");
+    }
+}
+
+bool LogicAnalyzer::sendHalfDuplexCommand(const String& command) {
+    if (uartConfig.duplexMode != UART_HALF_DUPLEX) {
+        addLogEntry("Error: Half-duplex command sent but not in half-duplex mode");
+        return false;
+    }
+    
+    if (halfDuplexBusy) {
+        addLogEntry("Error: Half-duplex busy, command queued: " + command);
+        halfDuplexTxQueue = command + "\r\n";  // Add line ending
+        return false;
+    }
+    
+    halfDuplexTxQueue = command + "\r\n";  // Add line ending
+    addLogEntry("Half-duplex: Command queued - " + command);
+    return true;
+}
+
+bool LogicAnalyzer::isHalfDuplexMode() const {
+    return uartConfig.duplexMode == UART_HALF_DUPLEX;
+}
+
+bool LogicAnalyzer::isHalfDuplexBusy() const {
+    return halfDuplexBusy;
+}
+
+String LogicAnalyzer::getHalfDuplexStatus() const {
+    JsonDocument doc;
+    doc["mode"] = (uartConfig.duplexMode == UART_HALF_DUPLEX) ? "Half" : "Full";
+    doc["busy"] = halfDuplexBusy;
+    doc["tx_mode"] = halfDuplexTxMode;
+    doc["queue_length"] = halfDuplexTxQueue.length();
+    doc["timeout"] = halfDuplexTxTimeout;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
 }
 
 #endif

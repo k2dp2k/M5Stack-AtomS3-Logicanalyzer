@@ -79,6 +79,11 @@ enum CompressionType {
     COMPRESS_HYBRID       // RLE + Delta combined
 };
 
+enum UartDuplexMode {
+    UART_FULL_DUPLEX,     // Traditional RX + TX on separate pins
+    UART_HALF_DUPLEX      // Single wire bidirectional communication
+};
+
 class LogicAnalyzer {
 private:
     Sample buffer[BUFFER_SIZE];
@@ -125,8 +130,9 @@ private:
         uint8_t dataBits = 8;
         uint8_t parity = 0;  // 0=None, 1=Odd, 2=Even
         uint8_t stopBits = 1;
-        uint8_t rxPin = 7;   // AtomS3 GPIO7 (G7) - RX only monitoring
+        uint8_t rxPin = 7;   // AtomS3 GPIO7 (G7) - RX/bidirectional pin
         int8_t txPin = -1;   // TX disabled (not connected) - use signed int8_t
+        UartDuplexMode duplexMode = UART_FULL_DUPLEX;  // Default to full duplex
         bool enabled = false;
     };
     
@@ -139,6 +145,12 @@ private:
     uint32_t lastUartActivity;
     uint32_t uartBytesReceived;
     uint32_t uartBytesSent;
+    
+    // Half-Duplex specific variables
+    bool halfDuplexTxMode;          // True when in TX mode for half-duplex
+    uint32_t halfDuplexTxTimeout;   // Timeout for TX mode
+    String halfDuplexTxQueue;       // Queue for commands to send
+    bool halfDuplexBusy;            // Busy flag for half-duplex operations
     
     // Preferences for persistent storage
     Preferences* preferences;
@@ -174,6 +186,12 @@ private:
     bool readGPIO1();
     bool checkTrigger(bool currentState);
     void addSample(bool data);
+    
+    // Half-Duplex private methods
+    void setupHalfDuplexPin(bool txMode);
+    void processHalfDuplexQueue();
+    void switchToRxMode();
+    void switchToTxMode();
     
 public:
     LogicAnalyzer();
@@ -217,7 +235,7 @@ public:
     float calculateBufferDuration() const;  // Calculate buffer duration in seconds
     
     // UART logging with configurable settings
-    void configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, int8_t txPin);
+    void configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, int8_t txPin, UartDuplexMode duplexMode = UART_FULL_DUPLEX);
     void enableUartMonitoring();
     void disableUartMonitoring();
     void addUartEntry(const String& data, bool isRx = true);
@@ -244,6 +262,12 @@ public:
     bool isFlashStorageEnabled() const;
     void initFlashStorage();  // Initialize LittleFS
     void clearFlashUartLogs();  // Clear flash-stored logs
+    
+    // Half-Duplex UART Communication
+    bool sendHalfDuplexCommand(const String& command);  // Send command in half-duplex mode
+    bool isHalfDuplexMode() const;                      // Check if in half-duplex mode
+    bool isHalfDuplexBusy() const;                      // Check if half-duplex is busy
+    String getHalfDuplexStatus() const;                 // Get half-duplex status info
     
     // Advanced Logic Analyzer Flash Storage
     void initFlashLogicStorage();   // Initialize flash for logic analyzer

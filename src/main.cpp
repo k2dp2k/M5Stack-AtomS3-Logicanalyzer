@@ -283,6 +283,7 @@ void setupWebServer() {
         uint8_t stopBits = 1;
         uint8_t rxPin = 7;
         int8_t txPin = -1;
+        UartDuplexMode duplexMode = UART_FULL_DUPLEX;  // Default to full duplex
         
         if (request->hasParam("baudrate", true)) {
             baudrate = request->getParam("baudrate", true)->value().toInt();
@@ -302,8 +303,12 @@ void setupWebServer() {
         if (request->hasParam("tx_pin", true)) {
             txPin = request->getParam("tx_pin", true)->value().toInt();
         }
+        if (request->hasParam("duplex_mode", true)) {
+            uint8_t duplexValue = request->getParam("duplex_mode", true)->value().toInt();
+            duplexMode = (duplexValue == 1) ? UART_HALF_DUPLEX : UART_FULL_DUPLEX;
+        }
         
-        analyzer.configureUart(baudrate, dataBits, parity, stopBits, rxPin, txPin);
+        analyzer.configureUart(baudrate, dataBits, parity, stopBits, rxPin, txPin, duplexMode);
         request->send(200, "application/json", "{\"status\":\"configured\",\"message\":\"UART settings updated\"}");
     });
     
@@ -516,6 +521,41 @@ void setupWebServer() {
         request->send(200, "application/json", response);
     });
     
+    // === HALF-DUPLEX UART ENDPOINTS ===
+    
+    // Send half-duplex command endpoint
+    server.on("/api/uart/send", HTTP_POST, [](AsyncWebServerRequest *request){
+        String command = "";
+        
+        if (request->hasParam("command", true)) {
+            command = request->getParam("command", true)->value();
+        }
+        
+        if (command.length() == 0) {
+            request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Command is required\"}");
+            return;
+        }
+        
+        bool success = analyzer.sendHalfDuplexCommand(command);
+        
+        JsonDocument doc;
+        doc["status"] = success ? "queued" : "error";
+        doc["command"] = command;
+        doc["message"] = success ? "Command queued for transmission" : "Failed to queue command (half-duplex busy)";
+        doc["is_half_duplex"] = analyzer.isHalfDuplexMode();
+        doc["busy"] = analyzer.isHalfDuplexBusy();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(success ? 200 : 409, "application/json", response);  // 409 = Conflict if busy
+    });
+    
+    // Get half-duplex status endpoint
+    server.on("/api/uart/half-duplex-status", HTTP_GET, [](AsyncWebServerRequest *request){
+        String status = analyzer.getHalfDuplexStatus();
+        request->send(200, "application/json", status);
+    });
+    
     // WiFi configuration endpoint
     server.on("/api/wifi/config", HTTP_POST, [](AsyncWebServerRequest *request){
         String ssid = "";
@@ -687,7 +727,10 @@ String getIndexHTML() {
            "<input id='uart-rxpin' type='number' value='7' min='0' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>TX Pin (-1=disabled):</label>" 
            "<input id='uart-txpin' type='number' value='-1' min='-1' max='48' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
-           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Duplex Mode:</label>" 
+           "<select id='uart-duplex' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
+           "<option value='0' selected>Full Duplex (RX + TX)</option><option value='1'>Half Duplex (Single Wire)</option></select></div>" 
+           "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>"
            "<select id='uart-buffersize' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;' onchange='updateBufferTimeEstimates()'>" 
            "<option value='1000'>1,000 entries</option>" 
            "<option value='5000'>5,000 entries</option>" 
@@ -794,12 +837,12 @@ String getIndexHTML() {
            "function enableUartMonitoring(){fetch('/api/uart/enable',{method:'POST'}).then(()=>{setTimeout(loadUartLogs,500);updateAll();});}" 
            "function disableUartMonitoring(){fetch('/api/uart/disable',{method:'POST'}).then(()=>{setTimeout(loadUartLogs,500);updateAll();});}"
            "function clearUartLogs(){fetch('/api/uart/clear',{method:'POST'}).then(()=>loadUartLogs());}" 
-           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits;document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;document.getElementById('uart-buffer-info').textContent=d.count+'/'+d.max_entries+' ('+(d.memory_usage/1024).toFixed(1)+'KB)';document.getElementById('uart-memory-usage').textContent=(d.memory_usage/1024).toFixed(1)+'KB used';document.getElementById('uart-storage-type').textContent=d.storage_type||'RAM';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';const toggleBtn=document.getElementById('uart-toggle');if(d.monitoring_enabled){toggleBtn.textContent='⏹️ Stop UART';toggleBtn.className='gemini-btn danger';}else{toggleBtn.textContent='▶️ Start UART';toggleBtn.className='gemini-btn success';}updateStorageDisplay();}).catch(e=>console.error('UART logs error:',e));}"
+           "function loadUartLogs(){fetch('/api/uart/logs').then(r=>r.json()).then(d=>{document.getElementById('uart-monitoring-status').textContent=d.monitoring_enabled?'Active':'Disabled';const config=d.config;document.getElementById('uart-current-config').textContent=config.baudrate+' '+config.data_bits+config.parity_string.charAt(0)+config.stop_bits+' ('+(config.duplex_string||'Full')+')';document.getElementById('uart-pins').textContent='RX:'+config.rx_pin+' TX:'+config.tx_pin;document.getElementById('uart-bytes').textContent='RX:'+d.bytes_received+' TX:'+d.bytes_sent;document.getElementById('uart-buffer-info').textContent=d.count+'/'+d.max_entries+' ('+(d.memory_usage/1024).toFixed(1)+'KB)';document.getElementById('uart-memory-usage').textContent=(d.memory_usage/1024).toFixed(1)+'KB used';document.getElementById('uart-storage-type').textContent=d.storage_type||'RAM';const logs=d.uart_logs.map(log=>'<div style=\"margin-bottom:5px;padding:5px;background:rgba(156,39,176,0.1);border-radius:4px;\">' + log + '</div>').join('');document.getElementById('uart-logs').innerHTML=logs||'No UART data logged';const toggleBtn=document.getElementById('uart-toggle');if(d.monitoring_enabled){toggleBtn.textContent='⏹️ Stop UART';toggleBtn.className='gemini-btn danger';}else{toggleBtn.textContent='▶️ Start UART';toggleBtn.className='gemini-btn success';}updateStorageDisplay();}).catch(e=>console.error('UART logs error:',e));}"
            "function copyUartData(){navigator.clipboard.writeText(document.getElementById('uart-logs').innerText).then(()=>alert('UART data copied to clipboard!')).catch(e=>alert('Copy failed: '+e.message));}" 
            "function downloadUartLogs(){window.open('/download/uart','_blank');}" 
            "function toggleUartConfig(){const config=document.getElementById('uart-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadUartConfig();};}"
-           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;}).catch(e=>console.error('UART config load error:',e));}"
-           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}" 
+           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;document.getElementById('uart-duplex').value=d.duplex_mode||0;}).catch(e=>console.error('UART config load error:',e));}"
+           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);formData.append('duplex_mode',document.getElementById('uart-duplex').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}"
            "function saveBufferSize(){const formData=new FormData();formData.append('size',document.getElementById('uart-buffersize').value);fetch('/api/uart/buffersize',{method:'POST',body:formData}).then(r=>r.json()).then(d=>{alert('Buffer size updated to '+d.new_size+' entries');loadUartLogs();updateBufferTimeEstimates();});}"
            "function updateBufferTimeEstimates(){" 
            "const baudrate=parseInt(document.getElementById('uart-baudrate').value);" 
@@ -815,7 +858,7 @@ String getIndexHTML() {
            "const storageUsage=Math.round(bufferSize*avgBytesPerEntry/1024);" 
            "document.getElementById('buffer-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' entries \\u2248 '+timeStr+' @ '+baudrate+' baud (\\u2248'+storageUsage+'KB)';"
            "}" 
-           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;updateBufferTimeEstimates();}).catch(e=>console.error('UART config load error:',e));}" 
+           "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;document.getElementById('uart-duplex').value=d.duplex_mode||0;updateBufferTimeEstimates();}).catch(e=>console.error('UART config load error:',e));}"
            "function toggleLogicConfig(){const config=document.getElementById('logic-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadLogicConfig();};}" 
            "function loadLogicConfig(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-samplerate').value=d.sample_rate||1000000;document.getElementById('logic-gpiopin').value=d.gpio_pin||1;document.getElementById('logic-trigger').value=d.trigger_mode||0;document.getElementById('logic-buffersize').value=d.buffer_size||16384;document.getElementById('logic-pretrigger').value=d.pre_trigger_percent||10;updateLogicTimeEstimates();}).catch(e=>console.error('Logic config load error:',e));}"
            "function saveLogicConfig(){const formData=new FormData();formData.append('sample_rate',document.getElementById('logic-samplerate').value);formData.append('gpio_pin',document.getElementById('logic-gpiopin').value);formData.append('trigger_mode',document.getElementById('logic-trigger').value);formData.append('buffer_size',document.getElementById('logic-buffersize').value);formData.append('pre_trigger_percent',document.getElementById('logic-pretrigger').value);fetch('/api/logic/config',{method:'POST',body:formData}).then(()=>{loadLogicConfig();updateLogicStatus();document.getElementById('logic-config').style.display='none';alert('Logic Analyzer configuration saved!');});}"
