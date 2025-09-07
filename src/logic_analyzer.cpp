@@ -4,6 +4,106 @@
 #include <soc/gpio_reg.h>  // For direct GPIO register access
 #ifdef ATOMS3_BUILD
     extern M5GFX& display;
+// ===== DUAL-MODE MONITORING (UART + LOGIC ON SAME PIN) =====
+
+void LogicAnalyzer::enableDualMode(bool enable) {
+    if (enable && isDualModeCompatible()) {
+        dualModeActive = true;
+        addLogEntry("Dual-mode activated: UART + Logic on GPIO" + String(logicConfig.gpioPin));
+        Serial.println("Dual-mode monitoring enabled: UART + Logic analysis simultaneously");
+    } else if (enable && !isDualModeCompatible()) {
+        dualModeActive = false;
+        addLogEntry("Dual-mode failed: Pin conflict - UART on GPIO" + String(uartConfig.rxPin) + ", Logic on GPIO" + String(logicConfig.gpioPin));
+        Serial.println("Dual-mode incompatible: Different pins configured");
+    } else {
+        dualModeActive = false;
+        addLogEntry("Dual-mode deactivated");
+        Serial.println("Dual-mode monitoring disabled");
+    }
+}
+
+bool LogicAnalyzer::isDualModeActive() const {
+    return dualModeActive;
+}
+
+bool LogicAnalyzer::isDualModeCompatible() const {
+    // Check if UART RX pin matches Logic GPIO pin
+    return (uartConfig.rxPin == logicConfig.gpioPin);
+}
+
+void LogicAnalyzer::processDualModeData(bool currentState) {
+    // Process Logic Analyzer data
+    if (triggerMode != TRIGGER_NONE && !triggerArmed) {
+        if (checkTrigger(currentState)) {
+            triggerArmed = true;
+            addLogEntry("Dual-mode trigger activated on GPIO" + String(logicConfig.gpioPin));
+            Serial.println("Dual-mode trigger activated!");
+        }
+        lastState = currentState;
+        // Don't return - still process UART data
+    }
+    
+    // Add Logic sample
+    if (triggerArmed) {
+        addSample(currentState);
+    }
+    
+    // Process UART data simultaneously
+    if (uartSerial && uartSerial->available()) {
+        while (uartSerial->available()) {
+            char c = uartSerial->read();
+            uartBytesReceived++;
+            lastUartActivity = millis();
+            
+            if (c == '\n' || c == '\r') {
+                if (uartRxBuffer.length() > 0) {
+                    addUartEntry(uartRxBuffer + " [DUAL]", true);  // Mark as dual-mode data
+                    uartRxBuffer = "";
+                }
+            } else if (c >= 32 && c <= 126) {
+                uartRxBuffer += c;
+                if (uartRxBuffer.length() > UART_MSG_MAX_LENGTH) {
+                    addUartEntry(uartRxBuffer + " [DUAL-TRUNC]", true);
+                    uartRxBuffer = "";
+                }
+            } else {
+                uartRxBuffer += "[0x" + String(c, HEX) + "]";
+            }
+        }
+    }
+    
+    // Handle incomplete UART lines
+    if (uartRxBuffer.length() > 0 && (millis() - lastUartActivity) > 1000) {
+        addUartEntry(uartRxBuffer + " [DUAL-TIMEOUT]", true);
+        uartRxBuffer = "";
+    }
+    
+    lastState = currentState;
+    
+    // Stop Logic capture if buffer is full
+    if (isBufferFull()) {
+        addLogEntry("Dual-mode Logic buffer full - stopping capture");
+        capturing = false;
+        Serial.println("Dual-mode Logic buffer full, capture stopped");
+    }
+}
+
+String LogicAnalyzer::getDualModeStatus() const {
+    JsonDocument doc;
+    doc["dual_mode_active"] = dualModeActive;
+    doc["compatible"] = isDualModeCompatible();
+    doc["uart_pin"] = uartConfig.rxPin;
+    doc["logic_pin"] = logicConfig.gpioPin;
+    doc["uart_monitoring"] = uartMonitoringEnabled;
+    doc["logic_capturing"] = capturing;
+    doc["logic_samples"] = getBufferUsage();
+    doc["uart_entries"] = getUartLogCount();
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
 #endif
 
 LogicAnalyzer::LogicAnalyzer() {
@@ -33,6 +133,9 @@ LogicAnalyzer::LogicAnalyzer() {
     halfDuplexTxTimeout = 0;
     halfDuplexTxQueue = "";
     halfDuplexBusy = false;
+    
+    // Dual-mode initialization
+    dualModeActive = false;
     
     // Flash Storage initialization - Enable by default to use 8MB Flash
     useFlashStorage = true;
@@ -98,6 +201,17 @@ void LogicAnalyzer::initializeGPIO1() {
 }
 
 void LogicAnalyzer::process() {
+    // Dual-mode processing (UART + Logic on same pin)
+    if (dualModeActive && uartMonitoringEnabled && capturing) {
+        uint32_t currentTime = micros();
+        if (currentTime - lastSampleTime >= sampleInterval) {
+            bool currentState = readGPIO1();
+            processDualModeData(currentState);
+            lastSampleTime = currentTime;
+        }
+        return;
+    }
+    
     // Process UART data monitoring
     if (uartMonitoringEnabled) {
         processUartData();
@@ -304,6 +418,13 @@ uint32_t LogicAnalyzer::getBufferUsage() const {
     } else {
         return (BUFFER_SIZE - readIndex) + writeIndex;
     }
+}
+
+uint32_t LogicAnalyzer::getCurrentBufferSize() const {
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        return logicConfig.maxFlashSamples;
+    }
+    return BUFFER_SIZE;
 }
 
 bool LogicAnalyzer::isBufferFull() const {

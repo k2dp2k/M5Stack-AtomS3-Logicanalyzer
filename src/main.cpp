@@ -176,7 +176,7 @@ void setupWebServer() {
         doc["sample_rate"] = analyzer.getSampleRate();
         doc["gpio_pin"] = 1;  // GPIO1 only
         doc["buffer_usage"] = analyzer.getBufferUsage();
-        doc["buffer_size"] = BUFFER_SIZE;
+        doc["buffer_size"] = analyzer.getCurrentBufferSize();
         doc["wifi_connected"] = wifi_connected;
         doc["ap_mode"] = ap_mode;
         doc["wifi_ssid"] = wifi_connected ? WiFi.SSID() : (ap_mode ? String(ap_ssid) : "");

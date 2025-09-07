@@ -12,13 +12,19 @@
     #include <M5GFX.h>
 #endif
 
-// Configuration constants - Optimized for GPIO1 only
+// Configuration constants - Optimized for shared 8MB Flash storage
 #define MAX_CHANNELS 1  // Only GPIO1 for maximum efficiency
 #define BUFFER_SIZE 16384  // Safe RAM buffer size
 #define MAX_BUFFER_SIZE 262144  // Max buffer size (flash storage required)
-#define FLASH_BUFFER_SIZE 1000000   // 1M samples in flash (~4.8MB storage) - Default Flash size
-#define MAX_FLASH_BUFFER_SIZE 2000000  // 2M samples max (~9.6MB) - Large captures
-#define FLASH_CHUNK_SIZE 4096  // Write chunks of 4KB to flash
+
+// Shared 8MB Flash allocation (6MB usable after system partition):
+// - UART: 2MB (400K entries @ 50 bytes avg) 
+// - Logic: 4MB (800K samples @ 5 bytes each)
+// Total: 6MB, leaving 2MB for system and safety margin
+#define FLASH_BUFFER_SIZE 400000     // 400K samples (~2MB) - Default balanced size
+#define MAX_FLASH_BUFFER_SIZE 800000 // 800K samples (~4MB) - Max logic storage 
+#define FLASH_CHUNK_SIZE 4096        // Write chunks of 4KB to flash
+#define MAX_UART_FLASH_ENTRIES 400000 // 400K UART entries (~2MB) - Shared flash limit
 #define DEFAULT_SAMPLE_RATE 1000000  // 1MHz
 #define MIN_SAMPLE_RATE 10           // 10Hz (ultra-low frequency monitoring)
 #define MAX_SAMPLE_RATE 40000000     // 40MHz (ESP32-S3 direct register access limit)
@@ -107,7 +113,7 @@ private:
     std::vector<String> serialLogBuffer;
     std::vector<String> uartLogBuffer;
     static const size_t MAX_LOG_ENTRIES = 100;
-    static const size_t MAX_UART_ENTRIES = 1000000;  // 1M entries - utilize full 8MB Flash capacity
+    static const size_t MAX_UART_ENTRIES = MAX_UART_FLASH_ENTRIES;  // 400K entries - shared flash allocation
     static const size_t UART_MSG_MAX_LENGTH = 1000;  // Increased to 1000 chars per message for longer data
     
     // Logic Analyzer configuration
@@ -168,6 +174,11 @@ private:
     bool flashStorageActive;      // Flash storage currently active
     FlashStorageHeader flashHeader; // Flash storage metadata
     
+    // Intelligent Flash Management
+    bool circularFlashMode;       // Enable circular overwriting of old data
+    uint32_t maxFlashSizeBytes;   // Maximum flash allocation (shared with UART)
+    void checkFlashSpaceAndRotate(); // Check available space and rotate if needed
+    
     // Compression state
     CompressedSample* compressedBuffer; // Compressed sample buffer
     uint32_t compressedCount;           // Number of compressed samples
@@ -192,6 +203,11 @@ private:
     void processHalfDuplexQueue();
     void switchToRxMode();
     void switchToTxMode();
+    
+    // Dual-mode monitoring (UART + Logic on same pin)
+    bool dualModeActive;                    // Both UART and Logic active on same pin
+    void processDualModeData(bool currentState); // Process both UART and Logic data
+    bool isDualModeCompatible() const;      // Check if both can run simultaneously
     
 public:
     LogicAnalyzer();
@@ -219,6 +235,7 @@ public:
     String getDataAsJSON();
     void clearBuffer();
     uint32_t getBufferUsage() const;
+    uint32_t getCurrentBufferSize() const;  // Get current configured buffer size
     bool isBufferFull() const;
     
     // Serial logging
@@ -268,6 +285,11 @@ public:
     bool isHalfDuplexMode() const;                      // Check if in half-duplex mode
     bool isHalfDuplexBusy() const;                      // Check if half-duplex is busy
     String getHalfDuplexStatus() const;                 // Get half-duplex status info
+    
+    // Dual-Mode Monitoring (UART + Logic on same pin)
+    void enableDualMode(bool enable = true);            // Enable simultaneous UART + Logic monitoring
+    bool isDualModeActive() const;                      // Check if dual mode is active
+    String getDualModeStatus() const;                   // Get dual mode status and statistics
     
     // Advanced Logic Analyzer Flash Storage
     void initFlashLogicStorage();   // Initialize flash for logic analyzer
