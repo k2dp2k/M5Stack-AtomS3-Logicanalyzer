@@ -68,6 +68,16 @@ private:
     static const size_t MAX_UART_ENTRIES = 1000000;  // 1M entries - utilize full 8MB Flash capacity
     static const size_t UART_MSG_MAX_LENGTH = 1000;  // Increased to 1000 chars per message for longer data
     
+    // Logic Analyzer configuration
+    struct LogicConfig {
+        uint32_t sampleRate = DEFAULT_SAMPLE_RATE;  // 1MHz default
+        uint8_t gpioPin = CHANNEL_0_PIN;           // GPIO1 on AtomS3
+        TriggerMode triggerMode = TRIGGER_NONE;    // No trigger by default
+        uint16_t bufferSize = BUFFER_SIZE;         // 16384 samples
+        uint8_t preTriggerPercent = 10;            // % of buffer for pre-trigger data
+        bool enabled = true;
+    };
+    
     // UART monitoring configuration
     struct UartConfig {
         uint32_t baudrate = 115200;
@@ -79,6 +89,7 @@ private:
         bool enabled = false;
     };
     
+    LogicConfig logicConfig;
     UartConfig uartConfig;
     HardwareSerial* uartSerial;
     bool uartMonitoringEnabled;
@@ -135,6 +146,13 @@ public:
     String getLogsAsJSON();
     String getLogsAsPlainText();
     void clearLogs();
+    
+    // Logic Analyzer configuration methods
+    void configureLogic(uint32_t sampleRate, uint8_t gpioPin, TriggerMode triggerMode, uint16_t bufferSize, uint8_t preTriggerPercent);
+    String getLogicConfigAsJSON();
+    void saveLogicConfig();
+    void loadLogicConfig();
+    float calculateBufferDuration() const;  // Calculate buffer duration in seconds
     
     // UART logging with configurable settings
     void configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, uint8_t txPin);

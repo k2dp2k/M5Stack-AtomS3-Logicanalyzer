@@ -622,6 +622,114 @@ String LogicAnalyzer::getDataAsCSV() {
     return result;
 }
 
+// Logic Analyzer Configuration Functions
+void LogicAnalyzer::configureLogic(uint32_t sampleRate, uint8_t gpioPin, TriggerMode triggerMode, uint16_t bufferSize, uint8_t preTriggerPercent) {
+    // Input validation
+    if (sampleRate < MIN_SAMPLE_RATE) sampleRate = MIN_SAMPLE_RATE;
+    if (sampleRate > MAX_SAMPLE_RATE) sampleRate = MAX_SAMPLE_RATE;
+    if (gpioPin > 48) gpioPin = CHANNEL_0_PIN;  // ESP32 has max 48 GPIO pins
+    if (bufferSize > BUFFER_SIZE) bufferSize = BUFFER_SIZE;
+    if (bufferSize < 1024) bufferSize = 1024;  // Minimum sensible buffer size
+    if (preTriggerPercent > 90) preTriggerPercent = 90;
+    if ((int)triggerMode < 0 || (int)triggerMode > 5) triggerMode = TRIGGER_NONE;
+    
+    logicConfig.sampleRate = sampleRate;
+    logicConfig.gpioPin = gpioPin;
+    logicConfig.triggerMode = triggerMode;
+    logicConfig.bufferSize = bufferSize;
+    logicConfig.preTriggerPercent = preTriggerPercent;
+    
+    // Apply configuration to analyzer
+    setSampleRate(sampleRate);
+    setTrigger(triggerMode);
+    gpio1Pin = gpioPin;
+    
+    saveLogicConfig();
+    
+    String configMsg = "Logic Analyzer configured: " + String(sampleRate) + "Hz, GPIO" + String(gpioPin) + 
+                       ", Trigger:" + String((int)triggerMode) + ", Buffer:" + String(bufferSize) +
+                       ", PreTrig:" + String(preTriggerPercent) + "%";
+    addLogEntry(configMsg);
+    Serial.println(configMsg);
+}
+
+String LogicAnalyzer::getLogicConfigAsJSON() {
+    JsonDocument doc;
+    doc["sample_rate"] = logicConfig.sampleRate;
+    doc["gpio_pin"] = logicConfig.gpioPin;
+    doc["trigger_mode"] = (int)logicConfig.triggerMode;
+    doc["trigger_mode_string"] = (logicConfig.triggerMode == TRIGGER_NONE ? "None" : 
+                                  logicConfig.triggerMode == TRIGGER_RISING_EDGE ? "Rising Edge" :
+                                  logicConfig.triggerMode == TRIGGER_FALLING_EDGE ? "Falling Edge" :
+                                  logicConfig.triggerMode == TRIGGER_BOTH_EDGES ? "Both Edges" :
+                                  logicConfig.triggerMode == TRIGGER_HIGH_LEVEL ? "High Level" :
+                                  logicConfig.triggerMode == TRIGGER_LOW_LEVEL ? "Low Level" : "Unknown");
+    doc["buffer_size"] = logicConfig.bufferSize;
+    doc["pre_trigger_percent"] = logicConfig.preTriggerPercent;
+    doc["enabled"] = logicConfig.enabled;
+    doc["buffer_duration_seconds"] = calculateBufferDuration();
+    doc["min_sample_rate"] = MIN_SAMPLE_RATE;
+    doc["max_sample_rate"] = MAX_SAMPLE_RATE;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+void LogicAnalyzer::saveLogicConfig() {
+    if (preferences) {
+        preferences->putUInt("logic_rate", logicConfig.sampleRate);
+        preferences->putUChar("logic_gpio", logicConfig.gpioPin);
+        preferences->putUChar("logic_trig", (uint8_t)logicConfig.triggerMode);
+        preferences->putUShort("logic_buffer", logicConfig.bufferSize);
+        preferences->putUChar("logic_pretrig", logicConfig.preTriggerPercent);
+        preferences->putBool("logic_enabled", logicConfig.enabled);
+        
+        String configMsg = "Logic config saved: " + String(logicConfig.sampleRate) + "Hz, GPIO" + 
+                           String(logicConfig.gpioPin) + ", Trigger:" + String((int)logicConfig.triggerMode);
+        addLogEntry(configMsg);
+        Serial.println(configMsg);
+    } else {
+        addLogEntry("Logic config save failed - no preferences available");
+        Serial.println("Logic config save failed - no preferences available");
+    }
+}
+
+void LogicAnalyzer::loadLogicConfig() {
+    if (preferences) {
+        logicConfig.sampleRate = preferences->getUInt("logic_rate", DEFAULT_SAMPLE_RATE);
+        logicConfig.gpioPin = preferences->getUChar("logic_gpio", CHANNEL_0_PIN);
+        logicConfig.triggerMode = (TriggerMode)preferences->getUChar("logic_trig", TRIGGER_NONE);
+        logicConfig.bufferSize = preferences->getUShort("logic_buffer", BUFFER_SIZE);
+        logicConfig.preTriggerPercent = preferences->getUChar("logic_pretrig", 10);
+        logicConfig.enabled = preferences->getBool("logic_enabled", true);
+        
+        // Apply loaded configuration
+        setSampleRate(logicConfig.sampleRate);
+        setTrigger(logicConfig.triggerMode);
+        gpio1Pin = logicConfig.gpioPin;
+        
+        String configMsg = "Logic config loaded: " + String(logicConfig.sampleRate) + "Hz, GPIO" + 
+                           String(logicConfig.gpioPin) + ", Trigger:" + String((int)logicConfig.triggerMode);
+        addLogEntry(configMsg);
+        Serial.println(configMsg);
+    } else {
+        // Use default values
+        logicConfig.sampleRate = DEFAULT_SAMPLE_RATE;
+        logicConfig.gpioPin = CHANNEL_0_PIN;
+        logicConfig.triggerMode = TRIGGER_NONE;
+        logicConfig.bufferSize = BUFFER_SIZE;
+        logicConfig.preTriggerPercent = 10;
+        logicConfig.enabled = true;
+        addLogEntry("Logic config loaded (defaults - no preferences available)");
+    }
+}
+
+float LogicAnalyzer::calculateBufferDuration() const {
+    if (logicConfig.sampleRate == 0) return 0.0;
+    return (float)logicConfig.bufferSize / (float)logicConfig.sampleRate;
+}
+
 // UART Monitoring Functions
 void LogicAnalyzer::configureUart(uint32_t baudrate, uint8_t dataBits, uint8_t parity, uint8_t stopBits, uint8_t rxPin, uint8_t txPin) {
     uartConfig.baudrate = baudrate;
