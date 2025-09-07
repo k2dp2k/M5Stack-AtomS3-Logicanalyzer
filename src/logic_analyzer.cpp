@@ -1,6 +1,7 @@
 #include "logic_analyzer.h"
 #include <WiFi.h>
 #include <cmath>
+#include <soc/gpio_reg.h>  // For direct GPIO register access
 #ifdef ATOMS3_BUILD
     extern M5GFX& display;
 #endif
@@ -31,11 +32,39 @@ LogicAnalyzer::LogicAnalyzer() {
     useFlashStorage = true;
     uartLogFileName = "/uart_logs.txt";
     
+    // Advanced Logic Analyzer initialization
+    flashLogicFileName = "/logic_samples.bin";
+    flashSamplesWritten = 0;
+    flashWritePosition = 0;
+    flashStorageActive = false;
+    compressedBuffer = nullptr;
+    compressedCount = 0;
+    lastTimestamp = 0;
+    lastData = false;
+    runLength = 0;
+    streamingActive = false;
+    streamingCount = 0;
+    flashWriteBuffer = nullptr;
+    bufferPosition = 0;
+    
     sampleInterval = 1000000 / sampleRate; // microseconds
 }
 
 LogicAnalyzer::~LogicAnalyzer() {
     stopCapture();
+    
+    // Cleanup advanced buffers
+    if (compressedBuffer) {
+        free(compressedBuffer);
+        compressedBuffer = nullptr;
+    }
+    if (flashWriteBuffer) {
+        free(flashWriteBuffer);
+        flashWriteBuffer = nullptr;
+    }
+    if (flashDataFile) {
+        flashDataFile.close();
+    }
 }
 
 void LogicAnalyzer::begin() {
@@ -93,7 +122,9 @@ void LogicAnalyzer::process() {
 }
 
 bool LogicAnalyzer::readGPIO1() {
-    return digitalRead(gpio1Pin);
+    // Direct register access for maximum speed on ESP32-S3
+    // GPIO1 is in GPIO_IN_REG (0x3ff4403c)
+    return (REG_READ(GPIO_IN_REG) & (1 << gpio1Pin)) != 0;
 }
 
 bool LogicAnalyzer::checkTrigger(bool currentState) {
@@ -114,9 +145,33 @@ bool LogicAnalyzer::checkTrigger(bool currentState) {
 }
 
 void LogicAnalyzer::addSample(bool data) {
-    buffer[writeIndex].timestamp = micros();
-    buffer[writeIndex].data = data;
-    writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+    Sample sample;
+    sample.timestamp = micros();
+    sample.data = data;
+    
+    // Handle different buffer modes
+    switch (logicConfig.bufferMode) {
+        case BUFFER_RAM:
+            // Standard RAM buffer
+            buffer[writeIndex] = sample;
+            writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+            break;
+            
+        case BUFFER_FLASH:
+            // Write directly to flash
+            writeToFlash(sample);
+            break;
+            
+        case BUFFER_STREAMING:
+            // Continuous streaming
+            processStreamingSample(sample);
+            break;
+            
+        case BUFFER_COMPRESSED:
+            // Compressed storage
+            compressSample(sample);
+            break;
+    }
 }
 
 void LogicAnalyzer::startCapture() {
@@ -171,10 +226,10 @@ String LogicAnalyzer::getDataAsJSON() {
     JsonDocument doc;
     JsonArray samples = doc["samples"].to<JsonArray>();
     
-    uint16_t count = getBufferUsage();
-    uint16_t index = readIndex;
+    uint32_t count = getBufferUsage();
+    uint32_t index = readIndex;
     
-    for (uint16_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         JsonObject sample = samples.add<JsonObject>();
         sample["timestamp"] = buffer[index].timestamp;
         sample["gpio1"] = buffer[index].data;  // Single boolean for GPIO1
@@ -199,7 +254,7 @@ void LogicAnalyzer::clearBuffer() {
     readIndex = 0;
 }
 
-uint16_t LogicAnalyzer::getBufferUsage() const {
+uint32_t LogicAnalyzer::getBufferUsage() const {
     if (writeIndex >= readIndex) {
         return writeIndex - readIndex;
     } else {
@@ -601,10 +656,10 @@ String LogicAnalyzer::getDataAsCSV() {
     // CSV Header - optimized for single GPIO1 channel
     result += "Sample,Timestamp_us,GPIO1_Digital,GPIO1_State\n";
     
-    uint16_t count = getBufferUsage();
-    uint16_t index = readIndex;
+    uint32_t count = getBufferUsage();
+    uint32_t index = readIndex;
     
-    for (uint16_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         result += String(i + 1) + ",";  // Sample number
         result += String(buffer[index].timestamp) + ",";  // Timestamp
         result += String(buffer[index].data ? 1 : 0) + ",";  // Digital value (0/1)
@@ -623,12 +678,12 @@ String LogicAnalyzer::getDataAsCSV() {
 }
 
 // Logic Analyzer Configuration Functions
-void LogicAnalyzer::configureLogic(uint32_t sampleRate, uint8_t gpioPin, TriggerMode triggerMode, uint16_t bufferSize, uint8_t preTriggerPercent) {
+void LogicAnalyzer::configureLogic(uint32_t sampleRate, uint8_t gpioPin, TriggerMode triggerMode, uint32_t bufferSize, uint8_t preTriggerPercent) {
     // Input validation
     if (sampleRate < MIN_SAMPLE_RATE) sampleRate = MIN_SAMPLE_RATE;
     if (sampleRate > MAX_SAMPLE_RATE) sampleRate = MAX_SAMPLE_RATE;
     if (gpioPin > 48) gpioPin = CHANNEL_0_PIN;  // ESP32 has max 48 GPIO pins
-    if (bufferSize > BUFFER_SIZE) bufferSize = BUFFER_SIZE;
+    if (bufferSize > MAX_BUFFER_SIZE) bufferSize = MAX_BUFFER_SIZE;
     if (bufferSize < 1024) bufferSize = 1024;  // Minimum sensible buffer size
     if (preTriggerPercent > 90) preTriggerPercent = 90;
     if ((int)triggerMode < 0 || (int)triggerMode > 5) triggerMode = TRIGGER_NONE;
@@ -681,7 +736,7 @@ void LogicAnalyzer::saveLogicConfig() {
         preferences->putUInt("logic_rate", logicConfig.sampleRate);
         preferences->putUChar("logic_gpio", logicConfig.gpioPin);
         preferences->putUChar("logic_trig", (uint8_t)logicConfig.triggerMode);
-        preferences->putUShort("logic_buffer", logicConfig.bufferSize);
+        preferences->putUInt("logic_buffer", logicConfig.bufferSize);
         preferences->putUChar("logic_pretrig", logicConfig.preTriggerPercent);
         preferences->putBool("logic_enabled", logicConfig.enabled);
         
@@ -700,7 +755,7 @@ void LogicAnalyzer::loadLogicConfig() {
         logicConfig.sampleRate = preferences->getUInt("logic_rate", DEFAULT_SAMPLE_RATE);
         logicConfig.gpioPin = preferences->getUChar("logic_gpio", CHANNEL_0_PIN);
         logicConfig.triggerMode = (TriggerMode)preferences->getUChar("logic_trig", TRIGGER_NONE);
-        logicConfig.bufferSize = preferences->getUShort("logic_buffer", BUFFER_SIZE);
+        logicConfig.bufferSize = preferences->getUInt("logic_buffer", BUFFER_SIZE);
         logicConfig.preTriggerPercent = preferences->getUChar("logic_pretrig", 10);
         logicConfig.enabled = preferences->getBool("logic_enabled", true);
         
@@ -1212,6 +1267,355 @@ void LogicAnalyzer::clearFlashUartLogs() {
             Serial.println("Failed to clear Flash UART logs");
         }
     }
+}
+
+// ===== ADVANCED LOGIC ANALYZER FEATURES =====
+
+// Flash Storage for Logic Analyzer
+void LogicAnalyzer::initFlashLogicStorage() {
+    if (!LittleFS.begin()) {
+        Serial.println("Flash storage not available for logic analyzer");
+        addLogEntry("Logic flash storage init failed");
+        return;
+    }
+    
+    // Initialize flash write buffer
+    if (!flashWriteBuffer) {
+        flashWriteBuffer = (uint8_t*)malloc(FLASH_CHUNK_SIZE);
+        if (!flashWriteBuffer) {
+            Serial.println("Failed to allocate flash write buffer");
+            return;
+        }
+    }
+    
+    // Initialize compression buffer
+    if (!compressedBuffer) {
+        compressedBuffer = (CompressedSample*)malloc(sizeof(CompressedSample) * 1000);
+        if (!compressedBuffer) {
+            Serial.println("Failed to allocate compression buffer");
+        }
+    }
+    
+    flashStorageActive = true;
+    bufferPosition = 0;
+    compressedCount = 0;
+    
+    addLogEntry("Logic flash storage initialized");
+    Serial.println("Logic Analyzer Flash Storage ready");
+}
+
+void LogicAnalyzer::enableFlashBuffering(BufferMode mode, uint32_t maxSamples) {
+    logicConfig.bufferMode = mode;
+    
+    // Limit flash samples to realistic values (5.6MB total shared with UART)
+    if (maxSamples > MAX_FLASH_BUFFER_SIZE) {
+        maxSamples = MAX_FLASH_BUFFER_SIZE;
+    }
+    logicConfig.maxFlashSamples = maxSamples;
+    
+    if (mode == BUFFER_FLASH || mode == BUFFER_STREAMING) {
+        initFlashLogicStorage();
+        
+        // Initialize flash header
+        flashHeader.magic = 0x4C4F4749;  // "LOGI"
+        flashHeader.version = 1;
+        flashHeader.sample_count = 0;
+        flashHeader.buffer_size = maxSamples;
+        flashHeader.sample_rate = sampleRate;
+        flashHeader.compression = (uint32_t)logicConfig.compression;
+        
+        String msg = "Flash buffering enabled: " + String(maxSamples) + " max samples (shared 5.6MB flash)";
+        addLogEntry(msg);
+        addLogEntry("WARNING: Flash storage shared with UART logs");
+    }
+    
+    if (mode == BUFFER_COMPRESSED) {
+        if (!compressedBuffer) {
+            initFlashLogicStorage();
+        }
+        addLogEntry("Compression enabled: " + String(logicConfig.compression));
+    }
+}
+
+void LogicAnalyzer::writeToFlash(const Sample& sample) {
+    if (!flashWriteBuffer) return;
+    
+    // Write sample to buffer
+    memcpy(flashWriteBuffer + bufferPosition, &sample, sizeof(Sample));
+    bufferPosition += sizeof(Sample);
+    flashSamplesWritten++;
+    
+    // Flush if buffer is full
+    if (bufferPosition >= FLASH_CHUNK_SIZE - sizeof(Sample)) {
+        flushFlashBuffer();
+    }
+}
+
+void LogicAnalyzer::flushFlashBuffer() {
+    if (!flashWriteBuffer || bufferPosition == 0) return;
+    
+    if (!flashDataFile) {
+        flashDataFile = LittleFS.open(flashLogicFileName, "a");
+    }
+    
+    if (flashDataFile) {
+        size_t written = flashDataFile.write(flashWriteBuffer, bufferPosition);
+        flashWritePosition += written;
+        bufferPosition = 0;
+    }
+}
+
+// Compression Methods
+void LogicAnalyzer::enableCompression(CompressionType type) {
+    logicConfig.compression = type;
+    runLength = 0;
+    lastTimestamp = 0;
+    lastData = false;
+    
+    String compressionName = (type == COMPRESS_RLE ? "RLE" :
+                             type == COMPRESS_DELTA ? "Delta" :
+                             type == COMPRESS_HYBRID ? "Hybrid" : "None");
+    
+    addLogEntry("Compression enabled: " + compressionName);
+}
+
+void LogicAnalyzer::compressSample(const Sample& sample) {
+    if (!compressedBuffer) return;
+    
+    switch (logicConfig.compression) {
+        case COMPRESS_RLE:
+            compressRunLength(sample.data, sample.timestamp, 1);
+            break;
+        case COMPRESS_DELTA:
+            compressDelta(sample.timestamp, sample.data);
+            break;
+        case COMPRESS_HYBRID:
+            // Use RLE for consecutive same values, delta for changes
+            if (sample.data == lastData && runLength < 65535) {
+                runLength++;
+            } else {
+                if (runLength > 0) {
+                    compressRunLength(lastData, lastTimestamp, runLength);
+                }
+                compressDelta(sample.timestamp, sample.data);
+                runLength = 1;
+            }
+            break;
+        default:
+            break;
+    }
+    
+    lastTimestamp = sample.timestamp;
+    lastData = sample.data;
+}
+
+void LogicAnalyzer::compressRunLength(bool data, uint32_t timestamp, uint16_t count) {
+    if (compressedCount < 1000) {
+        CompressedSample& compressed = compressedBuffer[compressedCount];
+        compressed.timestamp = timestamp;
+        compressed.count = count;
+        compressed.data = data;
+        compressed.type = COMPRESS_RLE;
+        compressedCount++;
+    }
+}
+
+void LogicAnalyzer::compressDelta(uint32_t timestamp, bool data) {
+    if (compressedCount < 1000) {
+        CompressedSample& compressed = compressedBuffer[compressedCount];
+        compressed.timestamp = timestamp - lastTimestamp;
+        compressed.count = 1;
+        compressed.data = data;
+        compressed.type = COMPRESS_DELTA;
+        compressedCount++;
+    }
+}
+
+// Streaming Methods
+void LogicAnalyzer::enableStreamingMode(bool enable) {
+    logicConfig.streamingMode = enable;
+    streamingActive = enable;
+    streamingCount = 0;
+    
+    if (enable) {
+        initFlashLogicStorage();
+        addLogEntry("Streaming mode enabled - continuous capture to flash");
+    } else {
+        flushFlashBuffer();
+        if (flashDataFile) {
+            flashDataFile.close();
+        }
+        addLogEntry("Streaming mode disabled");
+    }
+}
+
+void LogicAnalyzer::processStreamingSample(const Sample& sample) {
+    if (!streamingActive) return;
+    
+    streamingCount++;
+    
+    if (logicConfig.compression != COMPRESS_NONE) {
+        compressSample(sample);
+        
+        // Flush compressed data periodically
+        if (compressedCount >= 500) {
+            // Write compressed samples to flash
+            for (uint32_t i = 0; i < compressedCount; i++) {
+                writeToFlash(*(Sample*)&compressedBuffer[i]);
+            }
+            compressedCount = 0;
+        }
+    } else {
+        writeToFlash(sample);
+    }
+    
+    // Flush to flash every 1000 samples
+    if (streamingCount % 1000 == 0) {
+        flushFlashBuffer();
+    }
+}
+
+String LogicAnalyzer::getFlashDataAsJSON(uint32_t offset, uint32_t count) {
+    JsonDocument doc;
+    doc["flash_samples"] = flashSamplesWritten;
+    doc["flash_position"] = flashWritePosition;
+    doc["storage_mb"] = getFlashStorageUsedMB();
+    doc["buffer_mode"] = getBufferModeString();
+    doc["compression_ratio"] = getCompressionRatio();
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+uint32_t LogicAnalyzer::getCompressionRatio() const {
+    if (flashSamplesWritten == 0) return 0;
+    
+    uint32_t originalSize = flashSamplesWritten * sizeof(Sample);
+    uint32_t compressedSize = compressedCount * sizeof(CompressedSample);
+    
+    if (compressedSize == 0) return 0;
+    return (originalSize - compressedSize) * 100 / originalSize;
+}
+
+String LogicAnalyzer::getBufferModeString() const {
+    switch (logicConfig.bufferMode) {
+        case BUFFER_RAM: return "RAM";
+        case BUFFER_FLASH: return "Flash";
+        case BUFFER_STREAMING: return "Streaming";
+        case BUFFER_COMPRESSED: return "Compressed";
+        default: return "Unknown";
+    }
+}
+
+float LogicAnalyzer::getFlashStorageUsedMB() const {
+    return flashWritePosition / (1024.0 * 1024.0);
+}
+
+uint32_t LogicAnalyzer::getFlashSampleCount() const {
+    return flashSamplesWritten;
+}
+
+void LogicAnalyzer::clearFlashLogicData() {
+    if (flashDataFile) {
+        flashDataFile.close();
+    }
+    
+    if (LittleFS.exists(flashLogicFileName)) {
+        LittleFS.remove(flashLogicFileName);
+    }
+    
+    flashSamplesWritten = 0;
+    flashWritePosition = 0;
+    bufferPosition = 0;
+    compressedCount = 0;
+    
+    addLogEntry("Flash logic data cleared");
+}
+
+void LogicAnalyzer::setBufferMode(BufferMode mode) {
+    logicConfig.bufferMode = mode;
+    
+    switch (mode) {
+        case BUFFER_FLASH:
+            enableFlashBuffering(mode, FLASH_BUFFER_SIZE);
+            break;
+        case BUFFER_STREAMING:
+            enableStreamingMode(true);
+            break;
+        case BUFFER_COMPRESSED:
+            enableCompression(COMPRESS_HYBRID);
+            break;
+        default:
+            break;
+    }
+}
+
+String LogicAnalyzer::getAdvancedStatusJSON() const {
+    JsonDocument doc;
+    doc["buffer_mode"] = getBufferModeString();
+    doc["compression_type"] = (int)logicConfig.compression;
+    doc["flash_samples"] = flashSamplesWritten;
+    doc["flash_storage_mb"] = getFlashStorageUsedMB();
+    doc["streaming_active"] = streamingActive;
+    doc["streaming_count"] = streamingCount;
+    doc["compression_ratio"] = getCompressionRatio();
+    doc["compressed_samples"] = compressedCount;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+bool LogicAnalyzer::isStreamingActive() const {
+    return streamingActive;
+}
+
+uint32_t LogicAnalyzer::getStreamingSampleCount() const {
+    return streamingCount;
+}
+
+void LogicAnalyzer::stopStreaming() {
+    if (streamingActive) {
+        flushFlashBuffer();
+        if (flashDataFile) {
+            flashDataFile.close();
+        }
+        streamingActive = false;
+        addLogEntry("Streaming capture stopped - " + String(streamingCount) + " samples captured");
+    }
+}
+
+BufferMode LogicAnalyzer::getBufferMode() const {
+    return logicConfig.bufferMode;
+}
+
+String LogicAnalyzer::getCompressedDataAsJSON() {
+    JsonDocument doc;
+    JsonArray samples = doc["compressed_samples"].to<JsonArray>();
+    
+    for (uint32_t i = 0; i < compressedCount && i < 100; i++) {
+        JsonObject sample = samples.add<JsonObject>();
+        sample["timestamp"] = compressedBuffer[i].timestamp;
+        sample["count"] = compressedBuffer[i].count;
+        sample["data"] = compressedBuffer[i].data;
+        sample["type"] = compressedBuffer[i].type;
+    }
+    
+    doc["total_compressed"] = compressedCount;
+    doc["compression_ratio"] = getCompressionRatio();
+    doc["original_samples"] = flashSamplesWritten;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+void LogicAnalyzer::clearCompressedBuffer() {
+    compressedCount = 0;
+    runLength = 0;
+    lastTimestamp = 0;
+    lastData = false;
 }
 
 #endif

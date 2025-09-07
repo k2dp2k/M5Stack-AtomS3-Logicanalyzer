@@ -81,6 +81,9 @@ void setup() {
     analyzer.loadLogicConfig();
     analyzer.loadUartConfig();
     
+    // Ensure proper defaults are set
+    analyzer.addLogEntry("Logic Analyzer initialized with defaults");
+    
     // Try to connect to saved WiFi first
     bool connected = false;
     if (saved_ssid.length() > 0) {
@@ -173,7 +176,7 @@ void setupWebServer() {
         doc["sample_rate"] = analyzer.getSampleRate();
         doc["gpio_pin"] = 1;  // GPIO1 only
         doc["buffer_usage"] = analyzer.getBufferUsage();
-        doc["buffer_size"] = 16384;
+        doc["buffer_size"] = BUFFER_SIZE;
         doc["wifi_connected"] = wifi_connected;
         doc["ap_mode"] = ap_mode;
         doc["wifi_ssid"] = wifi_connected ? WiFi.SSID() : (ap_mode ? String(ap_ssid) : "");
@@ -224,7 +227,7 @@ void setupWebServer() {
         uint32_t sampleRate = DEFAULT_SAMPLE_RATE;
         uint8_t gpioPin = CHANNEL_0_PIN;
         uint8_t triggerMode = TRIGGER_NONE;
-        uint16_t bufferSize = BUFFER_SIZE;
+        uint32_t bufferSize = BUFFER_SIZE;
         uint8_t preTriggerPercent = 10;
         
         if (request->hasParam("sample_rate", true)) {
@@ -243,7 +246,32 @@ void setupWebServer() {
             preTriggerPercent = request->getParam("pre_trigger_percent", true)->value().toInt();
         }
         
+        // Handle new parameters for advanced modes
+        uint8_t bufferMode = 0; // Default to RAM
+        uint8_t compression = 0; // No compression
+        uint32_t flashSamples = FLASH_BUFFER_SIZE;
+        
+        if (request->hasParam("buffer_mode", true)) {
+            bufferMode = request->getParam("buffer_mode", true)->value().toInt();
+        }
+        if (request->hasParam("compression", true)) {
+            compression = request->getParam("compression", true)->value().toInt();
+        }
+        if (request->hasParam("flash_samples", true)) {
+            flashSamples = request->getParam("flash_samples", true)->value().toInt();
+        }
+        
         analyzer.configureLogic(sampleRate, gpioPin, (TriggerMode)triggerMode, bufferSize, preTriggerPercent);
+        
+        // Configure advanced modes
+        analyzer.setBufferMode((BufferMode)bufferMode);
+        if (compression > 0) {
+            analyzer.enableCompression((CompressionType)compression);
+        }
+        if (bufferMode == BUFFER_FLASH || bufferMode == BUFFER_STREAMING) {
+            analyzer.enableFlashBuffering((BufferMode)bufferMode, flashSamples);
+        }
+        
         request->send(200, "application/json", "{\"status\":\"configured\"}");
     });
     
@@ -377,8 +405,115 @@ void setupWebServer() {
     // Clear buffer data endpoint
     server.on("/api/data/clear", HTTP_POST, [](AsyncWebServerRequest *request){
         analyzer.clearBuffer();
+        analyzer.clearFlashLogicData(); // Also clear flash data
         analyzer.addLogEntry("Capture buffer cleared by user");
         request->send(200, "application/json", "{\"status\":\"cleared\",\"message\":\"Buffer cleared\"}");
+    });
+    
+    // === ADVANCED LOGIC ANALYZER ENDPOINTS ===
+    
+    // Advanced status endpoint
+    server.on("/api/logic/advanced-status", HTTP_GET, [](AsyncWebServerRequest *request){
+        String status = analyzer.getAdvancedStatusJSON();
+        request->send(200, "application/json", status);
+    });
+    
+    // Flash data endpoint
+    server.on("/api/logic/flash-data", HTTP_GET, [](AsyncWebServerRequest *request){
+        uint32_t offset = 0;
+        uint32_t count = 1000;
+        
+        if (request->hasParam("offset")) {
+            offset = request->getParam("offset")->value().toInt();
+        }
+        if (request->hasParam("count")) {
+            count = request->getParam("count")->value().toInt();
+        }
+        
+        String flashData = analyzer.getFlashDataAsJSON(offset, count);
+        request->send(200, "application/json", flashData);
+    });
+    
+    // Set buffer mode endpoint
+    server.on("/api/logic/buffer-mode", HTTP_POST, [](AsyncWebServerRequest *request){
+        uint8_t mode = 0; // Default RAM
+        uint32_t flashSamples = FLASH_BUFFER_SIZE;
+        
+        if (request->hasParam("mode", true)) {
+            mode = request->getParam("mode", true)->value().toInt();
+        }
+        if (request->hasParam("flash_samples", true)) {
+            flashSamples = request->getParam("flash_samples", true)->value().toInt();
+        }
+        
+        analyzer.setBufferMode((BufferMode)mode);
+        if (mode == BUFFER_FLASH || mode == BUFFER_STREAMING) {
+            analyzer.enableFlashBuffering((BufferMode)mode, flashSamples);
+        }
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["buffer_mode"] = analyzer.getBufferModeString();
+        doc["flash_samples"] = flashSamples;
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Enable compression endpoint
+    server.on("/api/logic/compression", HTTP_POST, [](AsyncWebServerRequest *request){
+        uint8_t compressionType = 0; // No compression
+        
+        if (request->hasParam("type", true)) {
+            compressionType = request->getParam("type", true)->value().toInt();
+        }
+        
+        analyzer.enableCompression((CompressionType)compressionType);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["compression_type"] = compressionType;
+        doc["compression_name"] = (compressionType == 1 ? "RLE" : 
+                                   compressionType == 2 ? "Delta" : 
+                                   compressionType == 3 ? "Hybrid" : "None");
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Streaming control endpoint
+    server.on("/api/logic/streaming", HTTP_POST, [](AsyncWebServerRequest *request){
+        bool enable = false;
+        
+        if (request->hasParam("enable", true)) {
+            enable = (request->getParam("enable", true)->value() == "true");
+        }
+        
+        analyzer.enableStreamingMode(enable);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["streaming_active"] = enable;
+        doc["streaming_count"] = analyzer.getStreamingSampleCount();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Flash storage stats endpoint
+    server.on("/api/logic/flash-stats", HTTP_GET, [](AsyncWebServerRequest *request){
+        JsonDocument doc;
+        doc["flash_samples"] = analyzer.getFlashSampleCount();
+        doc["flash_storage_mb"] = analyzer.getFlashStorageUsedMB();
+        doc["compression_ratio"] = analyzer.getCompressionRatio();
+        doc["buffer_mode"] = analyzer.getBufferModeString();
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
     });
     
     // WiFi configuration endpoint
@@ -592,9 +727,12 @@ String getIndexHTML() {
            "<div class='info-grid'>" 
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>Sample Rate (Hz):</label>" 
            "<select id='logic-samplerate' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;' onchange='updateLogicTimeEstimates()'>" 
-           "<option value='1000'>1kHz</option><option value='10000'>10kHz</option><option value='100000'>100kHz</option>" 
-           "<option value='1000000' selected>1MHz</option><option value='2000000'>2MHz</option><option value='5000000'>5MHz</option>" 
-           "<option value='10000000'>10MHz</option></select></div>" 
+           "<option value='10'>10Hz (Ultra-Low)</option><option value='20'>20Hz</option><option value='40'>40Hz</option>" 
+           "<option value='80'>80Hz</option><option value='100'>100Hz</option><option value='200'>200Hz</option>" 
+           "<option value='400'>400Hz</option><option value='1000'>1kHz</option><option value='10000'>10kHz</option>" 
+           "<option value='100000'>100kHz</option><option value='1000000' selected>1MHz</option>" 
+           "<option value='2000000'>2MHz</option><option value='5000000'>5MHz</option><option value='10000000'>10MHz</option>" 
+           "<option value='20000000'>20MHz</option><option value='40000000'>40MHz (Max)</option></select></div>"
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>GPIO Pin:</label>" 
            "<select id='logic-gpiopin' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'>" 
            "<option value='1' selected>GPIO1 (AtomS3 Optimized)</option><option value='2'>GPIO2</option><option value='4'>GPIO4</option></select></div>" 
@@ -604,22 +742,20 @@ String getIndexHTML() {
            "<option value='3'>Both Edges</option><option value='4'>High Level</option><option value='5'>Low Level</option></select></div>" 
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>" 
            "<select id='logic-buffersize' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;' onchange='updateLogicTimeEstimates()'>" 
-           "<option value='4096'>4,096 samples</option><option value='8192'>8,192 samples</option>" 
-           "<option value='16384' selected>16,384 samples</option></select></div>" 
+           "<option value='4096'>4,096 samples (20KB)</option><option value='8192'>8,192 samples (40KB)</option>" 
+           "<option value='16384' selected>16,384 samples (80KB)</option></select></div>"
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>Pre-Trigger (%):</label>" 
-           "<input id='logic-pretrigger' type='number' value='10' min='0' max='90' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>" 
+           "<input id='logic-pretrigger' type='number' value='10' min='0' max='90' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>"
            "</div>" 
            "<div style='margin:10px 5px;padding:8px;background:rgba(79,195,247,0.1);border-radius:4px;font-size:12px;color:#4fc3f7;'>" 
-           "<div id='logic-time-estimate'>📊 Estimated buffer duration...</div></div>" 
-           "<div style='margin-top:15px;'>" 
-           "<button class='gemini-btn' onclick='saveLogicConfig()'>✅ Apply Configuration</button></div>" 
-           "</div>" 
+           "<div id='logic-time-estimate'>📊 Estimated buffer duration...</div>" 
+           "<div style='font-size:11px;color:#ff9800;margin-top:4px;'>⚠️ Flash shared with UART (5.6MB total)</div></div>"
            "<div id='logic-status' class='info-grid' style='margin:10px 0;'>" 
            "<div class='info-item'><strong>Channel:</strong> <span id='logic-current-channel'>GPIO1</span></div>" 
            "<div class='info-item'><strong>Sample Rate:</strong> <span id='logic-current-rate'>1MHz</span></div>" 
            "<div class='info-item'><strong>Trigger:</strong> <span id='logic-current-trigger'>None</span></div>" 
-           "<div class='info-item'><strong>Buffer:</strong> <span id='logic-buffer-info'>16,384 samples</span></div>" 
-           "<div class='info-item'><strong>Duration:</strong> <span id='logic-duration'>16.4ms</span></div>" 
+           "<div class='info-item'><strong>Buffer:</strong> <span id='logic-buffer-info'>16,384 samples</span></div>"
+           "<div class='info-item'><strong>Duration:</strong> <span id='logic-duration'>16.4ms</span></div>"
            "</div>"
            "<div id='status' class='gemini-status'><span class='gemini-indicator ready'></span>Ready</div>" 
            "<div id='gpio-status' class='gpio-status'>🔌 GPIO1: High-Performance Mode</div>"
@@ -681,10 +817,10 @@ String getIndexHTML() {
            "}" 
            "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;updateBufferTimeEstimates();}).catch(e=>console.error('UART config load error:',e));}" 
            "function toggleLogicConfig(){const config=document.getElementById('logic-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadLogicConfig();};}" 
-           "function loadLogicConfig(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-samplerate').value=d.sample_rate;document.getElementById('logic-gpiopin').value=d.gpio_pin;document.getElementById('logic-trigger').value=d.trigger_mode;document.getElementById('logic-buffersize').value=d.buffer_size;document.getElementById('logic-pretrigger').value=d.pre_trigger_percent;updateLogicTimeEstimates();}).catch(e=>console.error('Logic config load error:',e));}" 
-           "function saveLogicConfig(){const formData=new FormData();formData.append('sample_rate',document.getElementById('logic-samplerate').value);formData.append('gpio_pin',document.getElementById('logic-gpiopin').value);formData.append('trigger_mode',document.getElementById('logic-trigger').value);formData.append('buffer_size',document.getElementById('logic-buffersize').value);formData.append('pre_trigger_percent',document.getElementById('logic-pretrigger').value);fetch('/api/logic/config',{method:'POST',body:formData}).then(()=>{loadLogicConfig();updateLogicStatus();document.getElementById('logic-config').style.display='none';alert('Logic Analyzer configuration saved!');});}" 
-           "function updateLogicTimeEstimates(){const sampleRate=parseInt(document.getElementById('logic-samplerate').value);const bufferSize=parseInt(document.getElementById('logic-buffersize').value);const durationSeconds=bufferSize/sampleRate;let timeStr='';if(durationSeconds<0.001){timeStr=Math.round(durationSeconds*1000000)+'μs';}else if(durationSeconds<1){timeStr=Math.round(durationSeconds*1000*10)/10+'ms';}else{timeStr=Math.round(durationSeconds*10)/10+'s';}document.getElementById('logic-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' samples ≈ '+timeStr+' @ '+(sampleRate>=1000000?Math.round(sampleRate/1000000*10)/10+'MHz':sampleRate>=1000?Math.round(sampleRate/1000)+'kHz':sampleRate+'Hz');}" 
-           "function updateLogicStatus(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-current-channel').textContent='GPIO'+d.gpio_pin;document.getElementById('logic-current-rate').textContent=d.sample_rate>=1000000?Math.round(d.sample_rate/1000000*10)/10+'MHz':d.sample_rate>=1000?Math.round(d.sample_rate/1000)+'kHz':d.sample_rate+'Hz';document.getElementById('logic-current-trigger').textContent=d.trigger_mode_string;document.getElementById('logic-buffer-info').textContent=d.buffer_size.toLocaleString()+' samples';const duration=d.buffer_duration_seconds;let durationStr='';if(duration<0.001){durationStr=Math.round(duration*1000000)+'μs';}else if(duration<1){durationStr=Math.round(duration*1000*10)/10+'ms';}else{durationStr=Math.round(duration*10)/10+'s';}document.getElementById('logic-duration').textContent=durationStr;}).catch(e=>console.error('Logic status update error:',e));}" 
+           "function loadLogicConfig(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-samplerate').value=d.sample_rate||1000000;document.getElementById('logic-gpiopin').value=d.gpio_pin||1;document.getElementById('logic-trigger').value=d.trigger_mode||0;document.getElementById('logic-buffersize').value=d.buffer_size||16384;document.getElementById('logic-pretrigger').value=d.pre_trigger_percent||10;updateLogicTimeEstimates();}).catch(e=>console.error('Logic config load error:',e));}"
+           "function saveLogicConfig(){const formData=new FormData();formData.append('sample_rate',document.getElementById('logic-samplerate').value);formData.append('gpio_pin',document.getElementById('logic-gpiopin').value);formData.append('trigger_mode',document.getElementById('logic-trigger').value);formData.append('buffer_size',document.getElementById('logic-buffersize').value);formData.append('pre_trigger_percent',document.getElementById('logic-pretrigger').value);fetch('/api/logic/config',{method:'POST',body:formData}).then(()=>{loadLogicConfig();updateLogicStatus();document.getElementById('logic-config').style.display='none';alert('Logic Analyzer configuration saved!');});}"
+           "function updateLogicTimeEstimates(){const sampleRate=parseInt(document.getElementById('logic-samplerate').value);const bufferSize=parseInt(document.getElementById('logic-buffersize').value);const durationSeconds=bufferSize/sampleRate;let timeStr='';if(durationSeconds<0.001){timeStr=Math.round(durationSeconds*1000000)+'μs';}else if(durationSeconds<1){timeStr=Math.round(durationSeconds*1000*10)/10+'ms';}else if(durationSeconds<60){timeStr=Math.round(durationSeconds*10)/10+'s';}else if(durationSeconds<3600){timeStr=Math.round(durationSeconds/60*10)/10+'min';}else if(durationSeconds<86400){timeStr=Math.round(durationSeconds/3600*10)/10+'h';}else{timeStr=Math.round(durationSeconds/86400*10)/10+'d';}document.getElementById('logic-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' samples ≈ '+timeStr+' @ '+(sampleRate>=1000000?Math.round(sampleRate/1000000*10)/10+'MHz':sampleRate>=1000?Math.round(sampleRate/1000)+'kHz':sampleRate+'Hz');}"
+           "function updateLogicStatus(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-current-channel').textContent='GPIO'+d.gpio_pin;document.getElementById('logic-current-rate').textContent=d.sample_rate>=1000000?Math.round(d.sample_rate/1000000*10)/10+'MHz':d.sample_rate>=1000?Math.round(d.sample_rate/1000)+'kHz':d.sample_rate+'Hz';document.getElementById('logic-current-trigger').textContent=d.trigger_mode_string;document.getElementById('logic-buffer-info').textContent=d.buffer_size.toLocaleString()+' samples';const duration=d.buffer_duration_seconds;let durationStr='';if(duration<0.001){durationStr=Math.round(duration*1000000)+'μs';}else if(duration<1){durationStr=Math.round(duration*1000*10)/10+'ms';}else if(duration<60){durationStr=Math.round(duration*10)/10+'s';}else if(duration<3600){durationStr=Math.round(duration/60*10)/10+'min';}else if(duration<86400){durationStr=Math.round(duration/3600*10)/10+'h';}else{durationStr=Math.round(duration/86400*10)/10+'d';}document.getElementById('logic-duration').textContent=durationStr;}).catch(e=>console.error('Logic status update error:',e));}"
            "function toggleFlashStorage(){"
            "fetch('/api/uart/storage').then(r=>r.json()).then(d=>{" 
            "const newState = !d.flash_enabled;" 

@@ -14,10 +14,14 @@
 
 // Configuration constants - Optimized for GPIO1 only
 #define MAX_CHANNELS 1  // Only GPIO1 for maximum efficiency
-#define BUFFER_SIZE 16384  // 4x larger buffer for single channel
+#define BUFFER_SIZE 16384  // Safe RAM buffer size
+#define MAX_BUFFER_SIZE 262144  // Max buffer size (flash storage required)
+#define FLASH_BUFFER_SIZE 500000   // 500K samples in flash (~2.4MB storage)
+#define MAX_FLASH_BUFFER_SIZE 1000000  // 1M samples max (~4.8MB) - leave 0.8MB for UART
+#define FLASH_CHUNK_SIZE 4096  // Write chunks of 4KB to flash
 #define DEFAULT_SAMPLE_RATE 1000000  // 1MHz
-#define MIN_SAMPLE_RATE 1000         // 1kHz
-#define MAX_SAMPLE_RATE 10000000     // 10MHz (higher rate possible with single channel)
+#define MIN_SAMPLE_RATE 10           // 10Hz (ultra-low frequency monitoring)
+#define MAX_SAMPLE_RATE 40000000     // 40MHz (ESP32-S3 direct register access limit)
 
 // GPIO pins for logic analyzer inputs - GPIO1 only for maximum performance
 #ifdef ATOMS3_BUILD
@@ -33,6 +37,25 @@ struct Sample {
     bool data;           // Single bit data for GPIO1 (more memory efficient)
 };
 
+// Compressed sample structures
+struct CompressedSample {
+    uint32_t timestamp;  // Base timestamp
+    uint16_t count;      // Run length or delta count
+    bool data;           // Data value
+    uint8_t type;        // Compression type flag
+};
+
+// Flash storage metadata
+struct FlashStorageHeader {
+    uint32_t magic;         // Magic number for validation
+    uint32_t version;       // Storage format version
+    uint32_t sample_count;  // Total samples stored
+    uint32_t buffer_size;   // Buffer configuration
+    uint32_t sample_rate;   // Sample rate used
+    uint32_t compression;   // Compression type
+    uint32_t crc32;         // Data integrity check
+};
+
 enum TriggerMode {
     TRIGGER_NONE,
     TRIGGER_RISING_EDGE,
@@ -42,11 +65,25 @@ enum TriggerMode {
     TRIGGER_LOW_LEVEL
 };
 
+enum BufferMode {
+    BUFFER_RAM,           // Standard RAM buffer (24K samples)
+    BUFFER_FLASH,         // Flash storage (1M+ samples)
+    BUFFER_STREAMING,     // Continuous streaming to flash
+    BUFFER_COMPRESSED     // Compressed storage (RLE + Delta)
+};
+
+enum CompressionType {
+    COMPRESS_NONE,
+    COMPRESS_RLE,         // Run-Length Encoding
+    COMPRESS_DELTA,       // Delta compression
+    COMPRESS_HYBRID       // RLE + Delta combined
+};
+
 class LogicAnalyzer {
 private:
     Sample buffer[BUFFER_SIZE];
-    volatile uint16_t writeIndex;
-    volatile uint16_t readIndex;
+    volatile uint32_t writeIndex;
+    volatile uint32_t readIndex;
     volatile bool capturing;
     
     uint32_t sampleRate;
@@ -73,9 +110,13 @@ private:
         uint32_t sampleRate = DEFAULT_SAMPLE_RATE;  // 1MHz default
         uint8_t gpioPin = CHANNEL_0_PIN;           // GPIO1 on AtomS3
         TriggerMode triggerMode = TRIGGER_NONE;    // No trigger by default
-        uint16_t bufferSize = BUFFER_SIZE;         // 16384 samples
+        uint32_t bufferSize = BUFFER_SIZE;         // 16384 samples
         uint8_t preTriggerPercent = 10;            // % of buffer for pre-trigger data
+        BufferMode bufferMode = BUFFER_RAM;        // Default to RAM buffer
+        CompressionType compression = COMPRESS_NONE; // No compression by default
         bool enabled = true;
+        bool streamingMode = false;                // Continuous streaming
+        uint32_t maxFlashSamples = FLASH_BUFFER_SIZE; // Flash buffer limit
     };
     
     // UART monitoring configuration
@@ -106,6 +147,27 @@ private:
     size_t maxUartEntries;  // Configurable max entries
     bool useFlashStorage;   // Use LittleFS instead of RAM for UART logs
     String uartLogFileName; // Flash storage file name
+    
+    // Advanced Logic Analyzer Flash Storage
+    File flashDataFile;     // Flash file handle for samples
+    String flashLogicFileName; // Logic analyzer flash file
+    uint32_t flashSamplesWritten; // Count of samples written to flash
+    uint32_t flashWritePosition;  // Current write position in flash
+    bool flashStorageActive;      // Flash storage currently active
+    FlashStorageHeader flashHeader; // Flash storage metadata
+    
+    // Compression state
+    CompressedSample* compressedBuffer; // Compressed sample buffer
+    uint32_t compressedCount;           // Number of compressed samples
+    uint32_t lastTimestamp;             // For delta compression
+    bool lastData;                      // For run-length encoding
+    uint16_t runLength;                 // Current run length
+    
+    // Streaming capture state
+    bool streamingActive;       // Streaming mode active
+    uint32_t streamingCount;    // Total samples streamed
+    uint8_t* flashWriteBuffer;  // Write buffer for flash chunks
+    uint32_t bufferPosition;    // Position in write buffer
     
     // Private methods - optimized for GPIO1
     void initializeGPIO1();
@@ -138,7 +200,7 @@ public:
     // Data access
     String getDataAsJSON();
     void clearBuffer();
-    uint16_t getBufferUsage() const;
+    uint32_t getBufferUsage() const;
     bool isBufferFull() const;
     
     // Serial logging
@@ -148,7 +210,7 @@ public:
     void clearLogs();
     
     // Logic Analyzer configuration methods
-    void configureLogic(uint32_t sampleRate, uint8_t gpioPin, TriggerMode triggerMode, uint16_t bufferSize, uint8_t preTriggerPercent);
+    void configureLogic(uint32_t sampleRate, uint8_t gpioPin, TriggerMode triggerMode, uint32_t bufferSize, uint8_t preTriggerPercent);
     String getLogicConfigAsJSON();
     void saveLogicConfig();
     void loadLogicConfig();
@@ -177,11 +239,43 @@ public:
     size_t getMaxUartEntries() const;
     float getUartBufferUsagePercent() const;
     
-    // Flash storage options
+    // Flash storage options (UART)
     void enableFlashStorage(bool enable = true);  // Switch between RAM and Flash storage
     bool isFlashStorageEnabled() const;
     void initFlashStorage();  // Initialize LittleFS
     void clearFlashUartLogs();  // Clear flash-stored logs
+    
+    // Advanced Logic Analyzer Flash Storage
+    void initFlashLogicStorage();   // Initialize flash for logic analyzer
+    void enableFlashBuffering(BufferMode mode, uint32_t maxSamples = FLASH_BUFFER_SIZE);
+    void writeToFlash(const Sample& sample);     // Write single sample to flash
+    void flushFlashBuffer();        // Flush write buffer to flash
+    String getFlashDataAsJSON(uint32_t offset = 0, uint32_t count = 1000);
+    void clearFlashLogicData();     // Clear flash logic data
+    uint32_t getFlashSampleCount() const;
+    float getFlashStorageUsedMB() const;
+    
+    // Compression Methods
+    void enableCompression(CompressionType type);
+    void compressSample(const Sample& sample);   // Add sample to compression buffer
+    void compressRunLength(bool data, uint32_t timestamp, uint16_t count);
+    void compressDelta(uint32_t timestamp, bool data);
+    String getCompressedDataAsJSON();
+    uint32_t getCompressionRatio() const;        // Returns compression percentage
+    void clearCompressedBuffer();
+    
+    // Streaming Capture
+    void enableStreamingMode(bool enable = true);
+    void processStreamingSample(const Sample& sample);
+    bool isStreamingActive() const;
+    uint32_t getStreamingSampleCount() const;
+    void stopStreaming();
+    
+    // Advanced Buffer Management
+    void setBufferMode(BufferMode mode);
+    BufferMode getBufferMode() const;
+    String getBufferModeString() const;
+    String getAdvancedStatusJSON() const;        // Comprehensive status
     
     // Data export
     String getDataAsCSV();
