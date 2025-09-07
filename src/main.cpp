@@ -754,7 +754,7 @@ String getIndexHTML() {
            "<div class='info-item'><strong>Pins:</strong> <span id='uart-pins'>RX:7 TX:disabled</span></div>" 
            "<div class='info-item'><strong>Bytes:</strong> <span id='uart-bytes'>RX:0 TX:0</span></div>" 
            "<div class='info-item'><strong>Buffer:</strong> <span id='uart-buffer-info'>0/10000 (0KB)</span></div>" 
-           "<div class='info-item'><strong>Storage:</strong> <span id='uart-storage-type'>RAM</span> <button class='gemini-btn secondary' onclick='toggleFlashStorage()' id='flash-toggle' style='margin-left:8px;padding:4px 8px;font-size:11px;'>💾 Flash</button></div>" 
+           "<div class='info-item'><strong>Storage:</strong> <span id='uart-storage-type'>Flash</span> <button class='gemini-btn secondary' onclick='toggleFlashStorage()' id='flash-toggle' style='margin-left:8px;padding:4px 8px;font-size:11px;background:linear-gradient(135deg,#4ecdc4 0%,#44a08d 100%);'>💽 RAM</button></div>"
            "</div>"
            "<div id='half-duplex-panel' style='display:none;margin:15px 0;padding:20px;background:rgba(255,152,0,0.1);border-radius:12px;border:1px solid rgba(255,152,0,0.2);'>" 
            "<h4 style='margin-bottom:15px;color:#ff9800;'>📡 Half-Duplex Command Interface</h4>" 
