@@ -960,7 +960,9 @@ String getIndexHTML() {
            "const captureBtn=document.getElementById('capture-toggle');if(d.capturing){captureBtn.textContent='⏹️ Stop Capture';captureBtn.className='gemini-btn danger';}else{captureBtn.textContent='▶️ Start Capture';captureBtn.className='gemini-btn success';}" 
            "}).catch(e=>console.error('Status update error:',e));" 
            "updateUartStatus();" 
-           "updateLogicStatus();}" 
+           "loadUartLogs();" 
+           "updateLogicStatus();" 
+           "loadLogs();}"
            "function updateUartStatus(){" 
            "fetch('/api/uart/logs').then(r=>r.json()).then(d=>{" 
            "const uartToggleBtn=document.getElementById('uart-toggle');" 
@@ -1040,6 +1042,7 @@ String getIndexHTML() {
            "setTimeout(optimizedUpdate, 1000);" 
            "}" 
            "setInterval(optimizedUpdate, 1000);" 
+           "updateAll();" 
            "setTimeout(updateBufferTimeEstimates,2000);" 
            "setTimeout(checkAndUpdateHalfDuplexPanel,3000);"
            "</script></body></html>";
