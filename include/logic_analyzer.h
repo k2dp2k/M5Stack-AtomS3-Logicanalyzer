@@ -16,8 +16,8 @@
 #define MAX_CHANNELS 1  // Only GPIO1 for maximum efficiency
 #define BUFFER_SIZE 16384  // Safe RAM buffer size
 #define MAX_BUFFER_SIZE 262144  // Max buffer size (flash storage required)
-#define FLASH_BUFFER_SIZE 500000   // 500K samples in flash (~2.4MB storage)
-#define MAX_FLASH_BUFFER_SIZE 1000000  // 1M samples max (~4.8MB) - leave 0.8MB for UART
+#define FLASH_BUFFER_SIZE 1000000   // 1M samples in flash (~4.8MB storage) - Default Flash size
+#define MAX_FLASH_BUFFER_SIZE 2000000  // 2M samples max (~9.6MB) - Large captures
 #define FLASH_CHUNK_SIZE 4096  // Write chunks of 4KB to flash
 #define DEFAULT_SAMPLE_RATE 1000000  // 1MHz
 #define MIN_SAMPLE_RATE 10           // 10Hz (ultra-low frequency monitoring)
@@ -115,7 +115,7 @@ private:
         uint32_t sampleRate = DEFAULT_SAMPLE_RATE;  // 1MHz default
         uint8_t gpioPin = CHANNEL_0_PIN;           // GPIO1 on AtomS3
         TriggerMode triggerMode = TRIGGER_NONE;    // No trigger by default
-        uint32_t bufferSize = BUFFER_SIZE;         // 16384 samples
+        uint32_t bufferSize = FLASH_BUFFER_SIZE;   // 1M samples - Default Flash storage
         uint8_t preTriggerPercent = 10;            // % of buffer for pre-trigger data
         BufferMode bufferMode = BUFFER_FLASH;      // Default to Flash buffer for more storage
         CompressionType compression = COMPRESS_NONE; // No compression by default

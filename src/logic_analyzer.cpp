@@ -74,14 +74,22 @@ LogicAnalyzer::~LogicAnalyzer() {
 }
 
 void LogicAnalyzer::begin() {
-    Serial.println("Initializing M5Stack AtomProbe GPIO1 Monitor...");
+    Serial.println("Initializing M5Stack AtomProbe GPIO Monitor...");
     initializeGPIO1();
     clearBuffer();
     
     // Initialize LittleFS for potential flash storage
     initFlashStorage();
     
-    Serial.printf("M5Stack AtomProbe GPIO1 Monitor initialized at %d Hz with %d sample buffer\\n", sampleRate, BUFFER_SIZE);
+    // Initialize flash storage for Logic Analyzer (default mode)
+    if (logicConfig.bufferMode == BUFFER_FLASH) {
+        enableFlashBuffering(BUFFER_FLASH, logicConfig.maxFlashSamples);
+        addLogEntry("Logic Analyzer Flash mode enabled: " + String(logicConfig.maxFlashSamples) + " samples");
+    }
+    
+    Serial.printf("M5Stack AtomProbe GPIO Monitor initialized at %d Hz with %d sample buffer (Flash: %s)\\n", 
+                  sampleRate, logicConfig.maxFlashSamples, 
+                  logicConfig.bufferMode == BUFFER_FLASH ? "enabled" : "disabled");
 }
 
 void LogicAnalyzer::initializeGPIO1() {
@@ -191,8 +199,18 @@ void LogicAnalyzer::startCapture() {
 
 void LogicAnalyzer::stopCapture() {
     capturing = false;
-    addLogEntry(String("Capture stopped. Buffer: ") + getBufferUsage() + "/" + BUFFER_SIZE);
+    
+    uint32_t maxSize = (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) 
+                       ? logicConfig.maxFlashSamples : BUFFER_SIZE;
+    
+    addLogEntry(String("Capture stopped. Buffer: ") + getBufferUsage() + "/" + maxSize + " (" + 
+                (logicConfig.bufferMode == BUFFER_FLASH ? "Flash" : "RAM") + ")");
     Serial.println("Capture stopped");
+    
+    // Flush any remaining flash data
+    if (logicConfig.bufferMode == BUFFER_FLASH) {
+        flushFlashBuffer();
+    }
 }
 
 bool LogicAnalyzer::isCapturing() const {
@@ -258,9 +276,29 @@ String LogicAnalyzer::getDataAsJSON() {
 void LogicAnalyzer::clearBuffer() {
     writeIndex = 0;
     readIndex = 0;
+    
+    // Clear flash storage if in flash mode
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        flashSamplesWritten = 0;
+        flashWritePosition = 0;
+        bufferPosition = 0;
+        
+        if (flashDataFile) {
+            flashDataFile.close();
+        }
+        
+        // Remove existing flash file
+        if (LittleFS.exists(flashLogicFileName)) {
+            LittleFS.remove(flashLogicFileName);
+        }
+    }
 }
 
 uint32_t LogicAnalyzer::getBufferUsage() const {
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        return flashSamplesWritten;
+    }
+    
     if (writeIndex >= readIndex) {
         return writeIndex - readIndex;
     } else {
@@ -269,6 +307,10 @@ uint32_t LogicAnalyzer::getBufferUsage() const {
 }
 
 bool LogicAnalyzer::isBufferFull() const {
+    if (logicConfig.bufferMode == BUFFER_FLASH || logicConfig.bufferMode == BUFFER_STREAMING) {
+        return flashSamplesWritten >= logicConfig.maxFlashSamples;
+    }
+    
     return getBufferUsage() >= (BUFFER_SIZE - 1);
 }
 
