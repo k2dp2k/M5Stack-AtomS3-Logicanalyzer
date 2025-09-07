@@ -123,36 +123,24 @@ void loop() {
         analyzer.switchPage();
     }
     
-    // Main logic analyzer processing (non-blocking)
+    // Main logic analyzer processing
     analyzer.process();
     
-    // Update display only when needed (throttled)
-    static unsigned long lastDisplayUpdate = 0;
-    if (millis() - lastDisplayUpdate > 200) {  // Max 5 FPS
-        analyzer.updateDisplay();
-        lastDisplayUpdate = millis();
-    }
+    // Update display
+    analyzer.updateDisplay();
     
-    // WiFi connection monitoring (throttled)
-    static unsigned long lastWifiCheck = 0;
-    if (millis() - lastWifiCheck > 5000) {  // Check every 5 seconds
-        checkWiFiConnection();
-        lastWifiCheck = millis();
-    }
+    // WiFi connection monitoring
+    checkWiFiConnection();
 #else
     // Main logic analyzer processing
     analyzer.process();
     
-    // WiFi connection monitoring (throttled) 
-    static unsigned long lastWifiCheck = 0;
-    if (millis() - lastWifiCheck > 5000) {
-        checkWiFiConnection();
-        lastWifiCheck = millis();
-    }
+    // WiFi connection monitoring (non-AtomS3)
+    checkWiFiConnection();
 #endif
     
-    // Yield to WiFi stack instead of delay
-    yield();
+    // Small delay to prevent watchdog issues
+    delay(10);
 }
 
 void setupWebServer() {
@@ -182,39 +170,28 @@ void setupWebServer() {
         request->send(200, "application/json", data);
     });
     
-    // Cache for status API to reduce JSON serialization overhead
-    static String cachedStatusResponse = "";
-    static unsigned long lastStatusUpdate = 0;
-    
     server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
-        unsigned long now = millis();
-        
-        // Update cache only every 2 seconds
-        if (now - lastStatusUpdate > 2000 || cachedStatusResponse.isEmpty()) {
-            JsonDocument doc;
-            doc["capturing"] = analyzer.isCapturing();
-            doc["sample_rate"] = analyzer.getSampleRate();
-            doc["gpio_pin"] = 1;  // GPIO1 only
-            doc["buffer_usage"] = analyzer.getBufferUsage();
-            doc["buffer_size"] = analyzer.getCurrentBufferSize();
-            doc["wifi_connected"] = wifi_connected;
-            doc["ap_mode"] = ap_mode;
-            doc["wifi_ssid"] = wifi_connected ? WiFi.SSID() : (ap_mode ? String(ap_ssid) : "");
-            doc["ip_address"] = wifi_connected ? WiFi.localIP().toString() : (ap_mode ? WiFi.softAPIP().toString() : "");
+        JsonDocument doc;
+        doc["capturing"] = analyzer.isCapturing();
+        doc["sample_rate"] = analyzer.getSampleRate();
+        doc["gpio_pin"] = 1;  // GPIO1 only
+        doc["buffer_usage"] = analyzer.getBufferUsage();
+        doc["buffer_size"] = analyzer.getCurrentBufferSize();
+        doc["wifi_connected"] = wifi_connected;
+        doc["ap_mode"] = ap_mode;
+        doc["wifi_ssid"] = wifi_connected ? WiFi.SSID() : (ap_mode ? String(ap_ssid) : "");
+        doc["ip_address"] = wifi_connected ? WiFi.localIP().toString() : (ap_mode ? WiFi.softAPIP().toString() : "");
 #ifdef ATOMS3_BUILD
-            doc["device"] = "AtomS3";
-            doc["display"] = "enabled";
+        doc["device"] = "AtomS3";
+        doc["display"] = "enabled";
 #else
-            doc["device"] = "ESP32";
-            doc["display"] = "none";
+        doc["device"] = "ESP32";
+        doc["display"] = "none";
 #endif
-            
-            cachedStatusResponse = "";
-            serializeJson(doc, cachedStatusResponse);
-            lastStatusUpdate = now;
-        }
         
-        request->send(200, "application/json", cachedStatusResponse);
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
     });
     
     // Serial logs endpoint
@@ -1032,19 +1009,10 @@ String getIndexHTML() {
            "dualBtn.textContent=d.dual_mode_active?'🔗 Dual ON':'🔗 Dual Mode';" 
            "dualBtn.style.background=d.dual_mode_active?'linear-gradient(135deg,#4caf50 0%,#388e3c 100%)':'linear-gradient(135deg,#ff9800 0%,#f57c00 100%)';" 
            "}).catch(e=>console.error('Dual mode display error:',e));}" 
-           "let lastUpdate = 0;" 
-           "function optimizedUpdate(){" 
-           "const now = Date.now();" 
-           "if(now - lastUpdate > 5000){" 
-           "updateAll();" 
-           "lastUpdate = now;" 
-           "}" 
-           "setTimeout(optimizedUpdate, 1000);" 
-           "}" 
-           "setInterval(optimizedUpdate, 1000);" 
-           "updateAll();" 
-           "setTimeout(updateBufferTimeEstimates,2000);" 
-           "setTimeout(checkAndUpdateHalfDuplexPanel,3000);"
+           "setInterval(updateAll,3000);updateAll();" 
+           "setInterval(loadUartLogs,4000);" 
+           "setTimeout(updateBufferTimeEstimates,1000);" 
+           "setTimeout(checkAndUpdateHalfDuplexPanel,1500);"
            "</script></body></html>";
 }
 
@@ -1224,8 +1192,8 @@ void checkWiFiConnection() {
     static unsigned long lastCheck = 0;
     unsigned long now = millis();
     
-    // Check WiFi status every 10 seconds to reduce CPU load
-    if (now - lastCheck < 10000) {
+    // Check WiFi status every 5 seconds
+    if (now - lastCheck < 5000) {
         return;
     }
     lastCheck = now;
