@@ -851,8 +851,9 @@ String getIndexHTML() {
            "function copyUartData(){navigator.clipboard.writeText(document.getElementById('uart-logs').innerText).then(()=>alert('UART data copied to clipboard!')).catch(e=>alert('Copy failed: '+e.message));}" 
            "function downloadUartLogs(){window.open('/download/uart','_blank');}" 
            "function toggleUartConfig(){const config=document.getElementById('uart-config');config.style.display=config.style.display==='none'?'block':'none';if(config.style.display==='block'){loadUartConfig();};}"
+           "function checkAndUpdateHalfDuplexPanel(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{const panel=document.getElementById('half-duplex-panel');if(d.duplex_mode===1){panel.style.display='block';}else{panel.style.display='none';}}).catch(e=>console.error('Half-duplex panel check error:',e));}"
            "function loadUartConfig(){fetch('/api/uart/config').then(r=>r.json()).then(d=>{document.getElementById('uart-baudrate').value=d.baudrate;document.getElementById('uart-databits').value=d.data_bits;document.getElementById('uart-parity').value=d.parity;document.getElementById('uart-stopbits').value=d.stop_bits;document.getElementById('uart-rxpin').value=d.rx_pin;document.getElementById('uart-txpin').value=d.tx_pin;document.getElementById('uart-duplex').value=d.duplex_mode||0;}).catch(e=>console.error('UART config load error:',e));}"
-           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);formData.append('duplex_mode',document.getElementById('uart-duplex').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';});}"
+           "function saveUartConfig(){const formData=new FormData();formData.append('baudrate',document.getElementById('uart-baudrate').value);formData.append('data_bits',document.getElementById('uart-databits').value);formData.append('parity',document.getElementById('uart-parity').value);formData.append('stop_bits',document.getElementById('uart-stopbits').value);formData.append('rx_pin',document.getElementById('uart-rxpin').value);formData.append('tx_pin',document.getElementById('uart-txpin').value);formData.append('duplex_mode',document.getElementById('uart-duplex').value);fetch('/api/uart/config',{method:'POST',body:formData}).then(()=>{loadUartLogs();document.getElementById('uart-config').style.display='none';setTimeout(checkAndUpdateHalfDuplexPanel,500);});}"
            "function saveBufferSize(){const formData=new FormData();formData.append('size',document.getElementById('uart-buffersize').value);fetch('/api/uart/buffersize',{method:'POST',body:formData}).then(r=>r.json()).then(d=>{alert('Buffer size updated to '+d.new_size+' entries');loadUartLogs();updateBufferTimeEstimates();});}"
            "function updateBufferTimeEstimates(){" 
            "const baudrate=parseInt(document.getElementById('uart-baudrate').value);" 
@@ -952,7 +953,8 @@ String getIndexHTML() {
            "if(e.key==='Enter'){sendHalfDuplexCommand();}" 
            "});" 
            "setInterval(updateAll,2000);updateAll();setInterval(loadUartLogs,3000);" 
-           "setTimeout(updateBufferTimeEstimates,1000);"
+           "setTimeout(updateBufferTimeEstimates,1000);" 
+           "setTimeout(checkAndUpdateHalfDuplexPanel,1500);"
            "</script></body></html>";
 }
 
