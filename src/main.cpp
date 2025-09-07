@@ -556,6 +556,34 @@ void setupWebServer() {
         request->send(200, "application/json", status);
     });
     
+    // === DUAL-MODE MONITORING ENDPOINTS ===
+    
+    // Enable/disable dual-mode monitoring
+    server.on("/api/dual-mode", HTTP_POST, [](AsyncWebServerRequest *request){
+        bool enable = false;
+        
+        if (request->hasParam("enable", true)) {
+            enable = (request->getParam("enable", true)->value() == "true");
+        }
+        
+        analyzer.enableDualMode(enable);
+        
+        JsonDocument doc;
+        doc["status"] = "updated";
+        doc["dual_mode_active"] = analyzer.isDualModeActive();
+        doc["compatible"] = enable ? "pins match" : "disabled";
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+    
+    // Get dual-mode status
+    server.on("/api/dual-mode/status", HTTP_GET, [](AsyncWebServerRequest *request){
+        String status = analyzer.getDualModeStatus();
+        request->send(200, "application/json", status);
+    });
+    
     // WiFi configuration endpoint
     server.on("/api/wifi/config", HTTP_POST, [](AsyncWebServerRequest *request){
         String ssid = "";
@@ -738,9 +766,9 @@ String getIndexHTML() {
            "<option value='25000'>25,000 entries</option>" 
            "<option value='50000'>50,000 entries</option>" 
            "<option value='100000'>100,000 entries</option>" 
-           "<option value='250000'>250,000 entries</option>" 
-           "<option value='500000'>500,000 entries</option>" 
-           "<option value='1000000'>1,000,000 entries</option></select></div>"
+           "<option value='200000'>200,000 entries (Shared Flash)</option>" 
+           "<option value='300000'>300,000 entries</option>" 
+           "<option value='400000'>400,000 entries (Max Flash)</option></select></div>"
            "<div style='margin:10px 5px;padding:8px;background:rgba(79,195,247,0.1);border-radius:4px;font-size:12px;color:#4fc3f7;'>" 
            "<div id='buffer-time-estimate'>📊 Estimated buffer time at current baud rate...</div></div>"
            "</div>" 
@@ -774,7 +802,8 @@ String getIndexHTML() {
            "<button class='gemini-btn success' onclick='toggleCapture()' id='capture-toggle'>▶️ Start Capture</button>" 
            "<button class='gemini-btn secondary' onclick='toggleLogicConfig()'>⚙️ Configure</button>" 
            "<button class='gemini-btn' onclick='getData()'>📊 Get Data</button>" 
-           "</div>" 
+           "<button class='gemini-btn' onclick='toggleDualMode()' id='dual-mode-toggle' style='background:linear-gradient(135deg,#ff9800 0%,#f57c00 100%);'>🔗 Dual Mode</button>" 
+           "</div>"
            "<div id='logic-config' style='display:none;margin:15px 0;padding:20px;background:rgba(79,195,247,0.1);border-radius:12px;'>" 
            "<h4 style='margin-bottom:15px;color:#4fc3f7;'>⚙️ Logic Analyzer Configuration</h4>" 
            "<div class='info-grid'>" 
@@ -796,15 +825,15 @@ String getIndexHTML() {
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>Buffer Size:</label>" 
            "<select id='logic-buffersize' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;' onchange='updateLogicTimeEstimates()'>" 
            "<option value='4096'>4,096 samples (20KB - RAM)</option><option value='8192'>8,192 samples (40KB - RAM)</option>" 
-           "<option value='16384'>16,384 samples (80KB - RAM)</option><option value='100000'>100K samples (480KB - Flash)</option>" 
-           "<option value='500000'>500K samples (2.4MB - Flash)</option><option value='1000000' selected>1M samples (4.8MB - Flash)</option>" 
-           "<option value='2000000'>2M samples (9.6MB - Flash)</option></select></div>"
+           "<option value='16384'>16,384 samples (80KB - RAM)</option><option value='100000'>100K samples (500KB - Flash)</option>" 
+           "<option value='200000'>200K samples (1MB - Flash)</option><option value='400000' selected>400K samples (2MB - Flash, Shared)</option>" 
+           "<option value='600000'>600K samples (3MB - Flash)</option><option value='800000'>800K samples (4MB - Flash, Max)</option></select></div>"
            "<div style='display:flex;flex-direction:column;margin:5px;'><label>Pre-Trigger (%):</label>" 
            "<input id='logic-pretrigger' type='number' value='10' min='0' max='90' style='padding:8px;border-radius:4px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;'></div>"
            "</div>" 
            "<div style='margin:10px 5px;padding:8px;background:rgba(79,195,247,0.1);border-radius:4px;font-size:12px;color:#4fc3f7;'>" 
            "<div id='logic-time-estimate'>📊 Estimated buffer duration...</div>" 
-           "<div style='font-size:11px;color:#ff9800;margin-top:4px;'>⚠️ Flash shared with UART (5.6MB total)</div></div>"
+           "<div style='font-size:11px;color:#ff9800;margin-top:4px;'>⚠️ Flash shared with UART (6MB total: 4MB Logic + 2MB UART)</div></div>"
            "<div id='logic-status' class='info-grid' style='margin:10px 0;'>" 
            "<div class='info-item'><strong>Channel:</strong> <span id='logic-current-channel'>GPIO1</span></div>" 
            "<div class='info-item'><strong>Sample Rate:</strong> <span id='logic-current-rate'>1MHz</span></div>" 
@@ -812,7 +841,8 @@ String getIndexHTML() {
            "<div class='info-item'><strong>Buffer:</strong> <span id='logic-buffer-info'>1,000,000 samples</span></div>" 
            "<div class='info-item'><strong>Duration:</strong> <span id='logic-duration'>1.0s</span></div>" 
            "<div class='info-item'><strong>Usage:</strong> <span id='logic-buffer-usage'>0/1,000,000 (0%)</span></div>" 
-           "<div class='info-item'><strong>Storage:</strong> <span id='logic-storage-type'>Flash</span> <span id='logic-storage-size'>(4.8MB)</span></div>" 
+           "<div class='info-item'><strong>Storage:</strong> <span id='logic-storage-type'>Flash</span> <span id='logic-storage-size'>(2MB)</span></div>" 
+           "<div class='info-item'><strong>Dual Mode:</strong> <span id='dual-mode-status'>Disabled</span> <span id='dual-mode-info'></span></div>" 
            "</div>"
            "<div id='status' class='gemini-status'><span class='gemini-indicator ready'></span>Ready</div>" 
            "<div id='gpio-status' class='gpio-status'>🔌 GPIO: High-Performance Mode</div>"
@@ -878,7 +908,7 @@ String getIndexHTML() {
            "function loadLogicConfig(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-samplerate').value=d.sample_rate||1000000;document.getElementById('logic-gpiopin').value=d.gpio_pin||1;document.getElementById('logic-trigger').value=d.trigger_mode||0;document.getElementById('logic-buffersize').value=d.buffer_size||16384;document.getElementById('logic-pretrigger').value=d.pre_trigger_percent||10;updateLogicTimeEstimates();}).catch(e=>console.error('Logic config load error:',e));}"
            "function saveLogicConfig(){const formData=new FormData();formData.append('sample_rate',document.getElementById('logic-samplerate').value);formData.append('gpio_pin',document.getElementById('logic-gpiopin').value);formData.append('trigger_mode',document.getElementById('logic-trigger').value);formData.append('buffer_size',document.getElementById('logic-buffersize').value);formData.append('pre_trigger_percent',document.getElementById('logic-pretrigger').value);fetch('/api/logic/config',{method:'POST',body:formData}).then(()=>{loadLogicConfig();updateLogicStatus();document.getElementById('logic-config').style.display='none';alert('Logic Analyzer configuration saved!');});}"
            "function updateLogicTimeEstimates(){const sampleRate=parseInt(document.getElementById('logic-samplerate').value);const bufferSize=parseInt(document.getElementById('logic-buffersize').value);const durationSeconds=bufferSize/sampleRate;let timeStr='';if(durationSeconds<0.001){timeStr=Math.round(durationSeconds*1000000)+'μs';}else if(durationSeconds<1){timeStr=Math.round(durationSeconds*1000*10)/10+'ms';}else if(durationSeconds<60){timeStr=Math.round(durationSeconds*10)/10+'s';}else if(durationSeconds<3600){timeStr=Math.round(durationSeconds/60*10)/10+'min';}else if(durationSeconds<86400){timeStr=Math.round(durationSeconds/3600*10)/10+'h';}else{timeStr=Math.round(durationSeconds/86400*10)/10+'d';}document.getElementById('logic-time-estimate').innerHTML='📊 '+bufferSize.toLocaleString()+' samples ≈ '+timeStr+' @ '+(sampleRate>=1000000?Math.round(sampleRate/1000000*10)/10+'MHz':sampleRate>=1000?Math.round(sampleRate/1000)+'kHz':sampleRate+'Hz');}"
-           "function updateLogicStatus(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-current-channel').textContent='GPIO'+d.gpio_pin;document.getElementById('logic-current-rate').textContent=d.sample_rate>=1000000?Math.round(d.sample_rate/1000000*10)/10+'MHz':d.sample_rate>=1000?Math.round(d.sample_rate/1000)+'kHz':d.sample_rate+'Hz';document.getElementById('logic-current-trigger').textContent=d.trigger_mode_string;document.getElementById('logic-buffer-info').textContent=d.buffer_size.toLocaleString()+' samples';const duration=d.buffer_duration_seconds;let durationStr='';if(duration<0.001){durationStr=Math.round(duration*1000000)+'μs';}else if(duration<1){durationStr=Math.round(duration*1000*10)/10+'ms';}else if(duration<60){durationStr=Math.round(duration*10)/10+'s';}else if(duration<3600){durationStr=Math.round(duration/60*10)/10+'min';}else if(duration<86400){durationStr=Math.round(duration/3600*10)/10+'h';}else{durationStr=Math.round(duration/86400*10)/10+'d';}document.getElementById('logic-duration').textContent=durationStr;});fetch('/api/status').then(r=>r.json()).then(d=>{const usage=d.buffer_usage||0;const total=d.buffer_size||1000000;const percent=Math.round((usage/total)*100);document.getElementById('logic-buffer-usage').textContent=usage.toLocaleString()+'/'+total.toLocaleString()+' ('+percent+'%)';const storageType=total>50000?'Flash':'RAM';const storageMB=(total*5/1024/1024).toFixed(1);document.getElementById('logic-storage-type').textContent=storageType;document.getElementById('logic-storage-size').textContent='('+storageMB+'MB)';}).catch(e=>console.error('Logic status update error:',e));}";
+           "function updateLogicStatus(){fetch('/api/logic/config').then(r=>r.json()).then(d=>{document.getElementById('logic-current-channel').textContent='GPIO'+d.gpio_pin;document.getElementById('logic-current-rate').textContent=d.sample_rate>=1000000?Math.round(d.sample_rate/1000000*10)/10+'MHz':d.sample_rate>=1000?Math.round(d.sample_rate/1000)+'kHz':d.sample_rate+'Hz';document.getElementById('logic-current-trigger').textContent=d.trigger_mode_string;document.getElementById('logic-buffer-info').textContent=d.buffer_size.toLocaleString()+' samples';const duration=d.buffer_duration_seconds;let durationStr='';if(duration<0.001){durationStr=Math.round(duration*1000000)+'μs';}else if(duration<1){durationStr=Math.round(duration*1000*10)/10+'ms';}else if(duration<60){durationStr=Math.round(duration*10)/10+'s';}else if(duration<3600){durationStr=Math.round(duration/60*10)/10+'min';}else if(duration<86400){durationStr=Math.round(duration/3600*10)/10+'h';}else{durationStr=Math.round(duration/86400*10)/10+'d';}document.getElementById('logic-duration').textContent=durationStr;});fetch('/api/status').then(r=>r.json()).then(d=>{const usage=d.buffer_usage||0;const total=d.buffer_size||1000000;const percent=Math.round((usage/total)*100);document.getElementById('logic-buffer-usage').textContent=usage.toLocaleString()+'/'+total.toLocaleString()+' ('+percent+'%)';const storageType=total>50000?'Flash':'RAM';const storageMB=(total*5/1024/1024).toFixed(1);document.getElementById('logic-storage-type').textContent=storageType;document.getElementById('logic-storage-size').textContent='('+storageMB+'MB)';}).catch(e=>console.error('Logic status update error:',e));}"
            "function toggleFlashStorage(){"
            "fetch('/api/uart/storage').then(r=>r.json()).then(d=>{" 
            "const newState = !d.flash_enabled;" 
@@ -956,7 +986,24 @@ String getIndexHTML() {
            "document.getElementById('half-duplex-command').addEventListener('keypress',function(e){" 
            "if(e.key==='Enter'){sendHalfDuplexCommand();}" 
            "});" 
-           "setInterval(updateAll,2000);updateAll();setInterval(loadUartLogs,3000);" 
+           "function toggleDualMode(){" 
+           "fetch('/api/dual-mode/status').then(r=>r.json()).then(d=>{" 
+           "const newState = !d.dual_mode_active;" 
+           "const formData=new FormData();formData.append('enable',newState.toString());" 
+           "fetch('/api/dual-mode',{method:'POST',body:formData}).then(r=>r.json()).then(result=>{" 
+           "updateDualModeDisplay();" 
+           "alert('Dual Mode '+(result.dual_mode_active?'Enabled':'Disabled')+': UART + Logic on same pin');" 
+           "}).catch(e=>console.error('Dual mode toggle error:',e));" 
+           "}).catch(e=>console.error('Dual mode status error:',e));}" 
+           "function updateDualModeDisplay(){" 
+           "fetch('/api/dual-mode/status').then(r=>r.json()).then(d=>{" 
+           "document.getElementById('dual-mode-status').textContent=d.dual_mode_active?'Active':'Disabled';" 
+           "document.getElementById('dual-mode-info').textContent=d.dual_mode_active?'(GPIO'+d.logic_pin+')':'';" 
+           "const dualBtn=document.getElementById('dual-mode-toggle');" 
+           "dualBtn.textContent=d.dual_mode_active?'🔗 Dual ON':'🔗 Dual Mode';" 
+           "dualBtn.style.background=d.dual_mode_active?'linear-gradient(135deg,#4caf50 0%,#388e3c 100%)':'linear-gradient(135deg,#ff9800 0%,#f57c00 100%)';" 
+           "}).catch(e=>console.error('Dual mode display error:',e));}" 
+           "setInterval(updateAll,2000);updateAll();setInterval(loadUartLogs,3000);setInterval(updateDualModeDisplay,2000);" 
            "setTimeout(updateBufferTimeEstimates,1000);" 
            "setTimeout(checkAndUpdateHalfDuplexPanel,1500);"
            "</script></body></html>";
